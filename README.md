@@ -9,14 +9,14 @@
    > source /opt/ros/humble/setup.bash
    > source install/setup.bash
 
-## 터미널1: 
+###### 터미널1: 
 맵 띄우는 런치 파일
 > ros2 launch storagy bringup.launch.py
-## 터미널2:
+###### 터미널2:
 라이다 실행/  cartographer 실행
 > ros2 param set /amcl tf_broadcast false
 > ros2 launch storagy cartographer.launch.py
-## 터미널3:
+###### 터미널3:
 - 텔레옵 실행
 > ros2 run teleop_twist_keyboard teleop_twist_keyboard 
 
