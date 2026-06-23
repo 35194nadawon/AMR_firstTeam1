@@ -1,6 +1,7 @@
 # AMR_firstTeam1
 자율주행전문가교육(xyz아카데미) 팀 프로젝트
 
+**storagy로 SLAM, Navigation 실습**
 1. 윈도우 파워쉘(다른 터미널)에서 wsl입력 실행: wsl -d Ubuntu-22.04
 2. wsl에서 로봇 연결: ssh storagy@192.168.0.84 -XC / 패스워드: 123412
 3. 런치
