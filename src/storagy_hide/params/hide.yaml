@@ -1,0 +1,17 @@
+# 숨는팀 공통 파라미터 (각 노드가 declare_parameter 로 읽음)
+hide_aruco_dock:
+  ros__parameters:
+    target_id: 0          # aruco_0
+    stop_distance_m: 0.4  # 태그 앞 정지 거리
+
+hide_human_perception:
+  ros__parameters:
+    fov_deg: 120.0        # 사람 전방 진입금지 부채꼴 각도
+    zone_radius_m: 1.0    # 부채꼴 반경
+
+# hideout(대기석) 좌표 — points.yaml 합의 후 R2 가 채움
+hideout:
+  x: 0.0
+  y: 0.0
+  qz: 0.0
+  qw: 1.0

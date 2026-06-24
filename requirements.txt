@@ -1,0 +1,29 @@
+# Python dependencies for the Storagy simulation (CPU-only, no GPU required).
+# torch / torchvision are installed separately from the CPU wheel index in the
+# Dockerfile so that no CUDA packages are pulled in.
+#
+# Versions pinned to match the known-working development environment.
+# Relax/upgrade with care — numpy must stay <2 for ROS Humble cv_bridge compat.
+
+# --- Vision (YOLOv8) ---
+ultralytics==8.4.37
+
+# --- LLM agent ---
+langchain==1.2.15
+langchain-core==1.2.28
+langchain-openai==1.1.12
+langgraph==1.1.6
+langgraph-checkpoint==4.0.1
+openai==2.31.0
+
+# --- Web dashboard / utils ---
+flask==3.1.2
+python-dotenv==1.2.2
+
+# --- Core numerics / vision (pinned for cv_bridge compatibility) ---
+# numpy must stay <2: ROS Humble's cv_bridge is built against the numpy 1.x ABI.
+# opencv-python 4.10.x is the last line that still supports numpy 1.x; newer
+# opencv (4.11+) requires numpy>=2 and would break cv_bridge.
+numpy==1.26.4
+opencv-python==4.10.0.84
+PyYAML

@@ -1,0 +1,21 @@
+# Keep secrets out of the image
+.env
+**/.env
+
+# Build artifacts are regenerated inside the container by `colcon build`
+build/
+install/
+log/
+Log/
+
+# Git / docker meta
+.git/
+.gitignore
+docker-compose.yml
+.dockerignore
+README.md
+LICENSE
+
+# Python caches
+**/__pycache__/
+**/*.pyc
