@@ -37,6 +37,62 @@ docker compose up -d        # 이미지 빌드/실행 (첫 빌드는 수 분 소
 
 컨테이너가 시작되면 `ros2 launch storagy full_bringup.launch.py` 가 자동 실행됩니다.
 
+## `dev_hide` 브랜치 (숨는팀 개발)
+
+> 이 섹션은 **`dev_hide` 브랜치**에만 해당합니다. `main`과 내용이 다를 수 있습니다.
+
+### 2026 AMR 교실 시뮬 환경
+
+- Gazebo 월드: `2026_amr.sdf` (1206_2.dae 밑판 + T1~T4 테이블·의자 + hideout + 배회 actor)
+- Nav2 맵: `1206_sim_1.yaml` (벽/장애물)
+- 웹 대시보드 매장 지도: `1206_top.png` (T1~T4, DOOR, SPAWN, HIDE 표시)
+
+**생성기 산출물은 git에 포함되지 않습니다** (`.gitignore`). pull·클론 직후 호스트에서 한 번 실행:
+
+```bash
+python3 tools/generate_2026_amr_world.py   # SDF, layout, 1206_2_sim.dae, 1206_top.png
+docker compose exec storagy-sim rebuild_ws.sh
+docker compose restart
+```
+
+월드/테이블 좌표만 바꿀 때도 위 순서를 따릅니다.
+
+### 실행 구성 (2단)
+
+| 단계 | 명령 | 포함 |
+|------|------|------|
+| 1. 베이스 | Docker 기동 → `full_bringup` (자동) | Gazebo, Nav2, YOLO, LLM, 웹 대시보드 |
+| 2. 숨는팀 | `ros2 launch storagy_hide hide_bringup.launch.py` | P1 FSM, ArUco 도킹, P3 사람감지·동적 코스트맵 |
+
+숨는팀은 **베이스가 떠 있는 상태에서 별도 터미널**로 실행합니다.
+
+```bash
+docker compose exec -it storagy-sim bash
+source /opt/ros/humble/setup.bash
+source /opt/storagy_sim_origin_ws/install/setup.bash
+ros2 launch storagy_hide hide_bringup.launch.py
+```
+
+배회 테스트:
+
+```bash
+ros2 topic pub /wander_enabled std_msgs/msg/Bool "{data: true}" --once
+```
+
+### `dev_hide` 현재 상태 (WIP)
+
+- P1(`state_machine`): LED/OLED FSM — 팀원(YJ) 구현 기준
+- P3(`human_perception`, `dynamic_costmap`): YOLO + 120° keepout 마스크 발행
+- **미연동**: KeepoutFilter → Nav2, FSM ↔ `/hide/persons`
+- 사람 회피(배회): Gazebo actor + LiDAR(`/scan`) → Nav2 obstacle layer
+
+### 생성기 (`tools/`)
+
+| 스크립트 | 역할 |
+|----------|------|
+| `generate_2026_amr_world.py` | SDF, layout JSON, `1206_2_sim.dae`, 대시보드 PNG |
+| `generate_dashboard_map.py` | 대시보드 지도만 따로 갱신 |
+
 ## 코드 수정 / 재빌드
 호스트의 `./src` 가 컨테이너 `/opt/storagy_sim_origin_ws/src` 에 마운트됩니다.
 - `src/**/scripts/*.py` (YOLO, 배회 노드 등): 시뮬 재시작만 하면 반영.
