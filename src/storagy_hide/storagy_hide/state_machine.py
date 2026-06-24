@@ -20,6 +20,7 @@ from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from std_msgs.msg import Bool, String
 from geometry_msgs.msg import Twist
+from visualization_msgs.msg import Marker # 시각화 토픽추가
 
 from storagy_interfaces.srv import SetLamp, Emotion
 
@@ -44,6 +45,9 @@ class HideStateMachine(Node):
         self.state_pub = self.create_publisher(String, '/hide/state', latched)
         self.cmd_pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.wander_pub = self.create_publisher(Bool, '/wander_enabled', latched)
+        # --- 시각화 토픽 추가 ---
+        self.led_pub = self.create_publisher(Marker, '/hide/led_marker', 1)
+        self.oled_pub = self.create_publisher(String, '/hide/oled_text', 1)
 
         # --- 구독 (안내팀 인계 신호 + R2 도킹 완료) ---
         self.create_subscription(Bool, '/hide/takeover_start', self._on_takeover, 10)
@@ -105,26 +109,56 @@ class HideStateMachine(Node):
         self.get_logger().info(
             f'[SetLamp] mode={req.mode} rgba=({req.color.r:.2f},{req.color.g:.2f},'
             f'{req.color.b:.2f},{req.color.a:.2f}) time={req.time}')
+        
+        if req.mode == 0:
+            self._publish_led(0.0, 0.0, 0.0, 0.0)
+        else:
+            self._publish_led(req.color.r, req.color.g, req.color.b, req.color.a)
+    
         resp.result = True
         return resp
+    
+    def _publish_led(self, r, g, b, a=1.0):
+        marker = Marker()
+        marker.header.frame_id = 'base_link'
+        marker.header.stamp = self.get_clock().now().to_msg()
+        marker.ns = 'hide_led'
+        marker.id = 0
+        marker.type = Marker.SPHERE
+        marker.action = Marker.ADD
+        marker.pose.position.z = 0.5
+        marker.pose.orientation.w = 1.0
+        marker.scale.x = 0.15
+        marker.scale.y = 0.15
+        marker.scale.z = 0.15
+        marker.color.r = r
+        marker.color.g = g
+        marker.color.b = b
+        marker.color.a = a
+        self.led_pub.publish(marker)
 
     def _on_set_emotion(self, req, resp):
         # TODO(R1): OLED 표정 표시(시뮬 이미지 토픽 or HW)
+        self.oled_pub.publish(String(data=req.emotion))
         self.get_logger().info(f'[Emotion] emotion={req.emotion}')
         resp.response = f'ok:{req.emotion}'
         return resp
-
+    
     def _lamp_off(self):
+        self._publish_led(0.0, 0.0, 0.0, 0.0)
         self.get_logger().info('LED OFF (위장)', throttle_duration_sec=5.0)
 
     def _lamp_on(self):
+        self._publish_led(0.0, 1.0, 0.0, 1.0)
         self.get_logger().info('LED ON (기상)')
 
     def _oled_idle(self):
-        self.get_logger().info('OLED 인형 눈/정지화면 (위장)', throttle_duration_sec=5.0)
+       # self.get_logger().info('OLED 인형 눈/정지화면 (위장)', throttle_duration_sec=5.0)
+        self.oled_pub.publish(String(data='doll_eyes'))
 
     def _oled_wake(self):
-        self.get_logger().info('OLED 점등 (기상)')
+      #  self.get_logger().info('OLED 점등 (기상)')
+        self.oled_pub.publish(String(data='awake'))
 
     # --------------------------------------------------------------- 주행 양보
     def _yield_navigation(self):
