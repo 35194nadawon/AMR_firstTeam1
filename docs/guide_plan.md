@@ -1,24 +1,111 @@
-## 🟦 [안내팀 R3] Nav2 기반 자율주행 및 점자 블록 추종 경로 보정 플래너 구현
+# Nav2 Guide Plan
 
-Markdown
+## 담당 범위
 
+`feature/nav2-guide`는 안내팀 R3 범위입니다. Nav2를 통해 목적지로 이동하고, 점자 블록 오차와 숨는팀 Freeze 신호를 받아 안내 주행 상태를 관리합니다.
+
+## 현재 MVP 구현
+
+추가 패키지:
+
+```text
+src/storagy_guide/
 ```
-### 🎯 개발 목표
-LiDAR SLAM 기반의 대역적인 전역 경로(Nav2 Navigation) 정보와 R2가 계산한 바닥 점자 블록 비전 오차 데이터를 실시간으로 융합(Sensor Fusion)하여, 로봇이 점자 블록을 이탈하지 않고 목적지 테이블까지 안전하게 주행하도록 로컬 플래너 및 조향 보정 노드를 구현합니다.
 
-### 🛠️ 세부 작업 및 구현 체크리스트
-- [ ] **정본 맵 빌드 및 Waypoints 매핑 (`points.yaml`)**
-  - 카페/교실 가제보 환경을 SLAM(Cartographer/Nav2)으로 정밀 맵핑하여 `map/1206_sim_1.yaml` 정본 파일 고정 및 AMCL 파라미터 튜닝
-  - `storagy_llm/params/points.yaml` 내 각 테이블 및 카운터, 입구의 X/Y/Yaw 가이드 좌표계 최종 확정 (숨는팀 공유용)
-- [ ] **Nav2 Local Costmap 및 플래너 연동**
-  - R1 백엔드로부터 목적지(`Maps_to_pose`) 액션 요청을 받았을 때의 자율주행 베이스 라인 구동
-- [ ] **비전 피드백 기반 조향 보정 알고리즘 구현**
-  - R2가 발행하는 `/guide/yellow_line_error`를 구독
-  - Nav2 로컬 플래너가 계산한 `cmd_vel` 제어 명령에 비전 오차 기반 PID 제어 보정치($\Delta \theta$)를 주입하여, 최종 모터 명령 `cmd_vel`을 부드럽게 가공해 로봇 하드웨어 및 시뮬레이션에 전달하는 중간 제어기 노드 작성
-- [ ] **돌발 상황(인간 진입) 시 급정지 및 대기 로직**
-  - 주행 중 숨는팀의 코스트맵 필터로 인해 경로가 막히거나 직접 장애물이 포착될 시, 부드러운 감속 및 정지(Freeze) 제어 연동
+추가 노드:
 
-### 📌 데이터 인터페이스 & 인계 규칙
-- **구독 토픽 (Input)**: `/guide/yellow_line_error`, `/navigate_to_pose` 액션 서버
-- **발행 토픽 (Output)**: `/cmd_vel` (`geometry_msgs/msg/Twist`)
+```text
+guide_nav_node
 ```
+
+현재 동작:
+
+- `/guide/person_arrived`가 `true`가 되면 고정 목적지로 Nav2 goal 전송
+- `/guide/command`가 `start_guide`이면 고정 목적지로 Nav2 goal 전송
+- `/hide/freeze=true`이면 Nav2 goal cancel 및 `/cmd_vel` 0 발행
+- `/hide/freeze=false`이면 필요 시 같은 목적지로 goal 재전송
+- Nav2 도착 성공 시 `/guide/state=ARRIVED`, `/guide/mission_done=true` 발행
+- `/guide/yellow_line_error`는 구독만 해두고, 실제 cmd_vel 보정은 다음 단계에서 구현
+
+## 토픽
+
+구독:
+
+```text
+/guide/person_arrived       std_msgs/Bool
+/guide/command              std_msgs/String
+/hide/freeze                std_msgs/Bool
+/guide/yellow_line_error    geometry_msgs/Pose2D
+```
+
+발행:
+
+```text
+/guide/state                std_msgs/String
+/guide/mission_done         std_msgs/Bool
+/cmd_vel                    geometry_msgs/Twist
+```
+
+Action client:
+
+```text
+/navigate_to_pose           nav2_msgs/action/NavigateToPose
+```
+
+## 실행
+
+Nav2가 먼저 실행되어 있어야 합니다.
+
+```bash
+source /opt/ros/humble/setup.bash
+source install/setup.bash
+ros2 launch storagy_guide guide_nav.launch.py
+```
+
+테스트용으로 바로 사람 도착 신호를 켜려면:
+
+```bash
+ros2 launch storagy_guide guide_nav.launch.py demo_person_arrived:=true
+```
+
+또는 토픽으로 시작:
+
+```bash
+ros2 topic pub --once /guide/person_arrived std_msgs/msg/Bool "{data: true}"
+```
+
+고정 목적지 변경:
+
+```bash
+ros2 launch storagy_guide guide_nav.launch.py target_x:=1.0 target_y:=0.0 target_yaw:=0.0
+```
+
+## 교실 맵
+
+교실 맵 파일을 `src/storagy/map`에 추가했습니다.
+
+```text
+src/storagy/map/2026_amr.yaml
+src/storagy/map/2026_amr.pgm
+```
+
+맵 메타데이터:
+
+```yaml
+resolution: 0.05
+origin: [-4.66, -10.3, 0]
+```
+
+Nav2에서 이 맵을 쓰려면 navigation launch의 `map` 인자로 넘깁니다.
+
+```bash
+ros2 launch storagy launch/navigation2/navigation2.launch.py \
+  map:=/path/to/install/storagy/share/storagy/map/2026_amr.yaml
+```
+
+## 다음 단계
+
+- `/guide/yellow_line_error` 기반 조향 보정 구현
+- Nav2 `/cmd_vel` 출력과 보정 노드 출력이 충돌하지 않게 cmd_vel mux/safety layer 구성
+- 교실 맵에서 문 위치와 목표 좌표를 실제 좌표로 튜닝
+- `/guide/command`에 목적지 이름을 실어 `table_1`, `counter` 등으로 확장
