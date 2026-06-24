@@ -15,7 +15,7 @@
 ###### 터미널2:
 라이다 실행/  cartographer 실행
 > ros2 param set /amcl tf_broadcast false
-> ros2 launch storagy cartographer.launch.py
+ ros2 launch storagy cartographer.launch.py
 ###### 터미널3:
 - 텔레옵 실행
 > ros2 run teleop_twist_keyboard teleop_twist_keyboard 
