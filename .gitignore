@@ -1,3 +1,11 @@
+# --- ROS 2 / colcon build artifacts ---
+build/
+install/
+log/
+
+# Local LLM secret (use .env.example as template)
+.env
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
