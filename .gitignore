@@ -224,3 +224,16 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# --- 2026 AMR 생성기 산출물 (재생성: python3 tools/generate_2026_amr_world.py) ---
+src/storagy/worlds/2026_amr.sdf
+src/storagy/worlds/2026_amr_layout.json
+src/storagy/meshes/1206_2_sim.dae
+src/storagy_llm/web/1206_top.png
+tools/map_preview_2026_amr.png
+
+# --- 구 map2mesh / 자동맵 실험 (폐기, 런타임 미사용) ---
+src/storagy/map/2026_amr.pgm
+src/storagy/map/2026_amr.yaml
+src/storagy/meshes/2026_amr_walls.stl
+src/storagy/meshes/2026_amr_tables.stl

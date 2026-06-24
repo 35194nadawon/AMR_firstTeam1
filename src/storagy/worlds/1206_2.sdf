@@ -155,5 +155,118 @@
       </script>
     </actor>
 
+    <!-- =============================================================== -->
+    <!-- 토이 가이드(컨셉 3) 매장 구성 — 외벽 메쉬/맵은 그대로, 내부만 변경 -->
+    <!-- 좌표계: x[-5,5] y[-3.8,3.7]. 상단 기둥 2개(~(-2.75,2.2),(3.55,2.2)) 회피 -->
+    <!-- =============================================================== -->
+
+    <!-- 카페 테이블 (안내 목적지 겸 회피 장애물) : 다리+상판 원형 테이블 -->
+    <model name="cafe_table_1">
+      <static>true</static>
+      <pose>-1.5 -2.3 0 0 0 0</pose>
+      <link name="link">
+        <collision name="col">
+          <pose>0 0 0.37 0 0 0</pose>
+          <geometry><cylinder><radius>0.4</radius><length>0.74</length></cylinder></geometry>
+        </collision>
+        <visual name="leg">
+          <pose>0 0 0.35 0 0 0</pose>
+          <geometry><cylinder><radius>0.06</radius><length>0.70</length></cylinder></geometry>
+          <material><ambient>0.25 0.15 0.08 1</ambient><diffuse>0.40 0.25 0.12 1</diffuse></material>
+        </visual>
+        <visual name="top">
+          <pose>0 0 0.72 0 0 0</pose>
+          <geometry><cylinder><radius>0.40</radius><length>0.04</length></cylinder></geometry>
+          <material><ambient>0.30 0.18 0.10 1</ambient><diffuse>0.55 0.35 0.18 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="cafe_table_2">
+      <static>true</static>
+      <pose>1.0 -1.5 0 0 0 0</pose>
+      <link name="link">
+        <collision name="col">
+          <pose>0 0 0.37 0 0 0</pose>
+          <geometry><cylinder><radius>0.4</radius><length>0.74</length></cylinder></geometry>
+        </collision>
+        <visual name="leg">
+          <pose>0 0 0.35 0 0 0</pose>
+          <geometry><cylinder><radius>0.06</radius><length>0.70</length></cylinder></geometry>
+          <material><ambient>0.25 0.15 0.08 1</ambient><diffuse>0.40 0.25 0.12 1</diffuse></material>
+        </visual>
+        <visual name="top">
+          <pose>0 0 0.72 0 0 0</pose>
+          <geometry><cylinder><radius>0.40</radius><length>0.04</length></cylinder></geometry>
+          <material><ambient>0.30 0.18 0.10 1</ambient><diffuse>0.55 0.35 0.18 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <model name="cafe_table_3">
+      <static>true</static>
+      <pose>3.0 -0.8 0 0 0 0</pose>
+      <link name="link">
+        <collision name="col">
+          <pose>0 0 0.37 0 0 0</pose>
+          <geometry><cylinder><radius>0.4</radius><length>0.74</length></cylinder></geometry>
+        </collision>
+        <visual name="leg">
+          <pose>0 0 0.35 0 0 0</pose>
+          <geometry><cylinder><radius>0.06</radius><length>0.70</length></cylinder></geometry>
+          <material><ambient>0.25 0.15 0.08 1</ambient><diffuse>0.40 0.25 0.12 1</diffuse></material>
+        </visual>
+        <visual name="top">
+          <pose>0 0 0.72 0 0 0</pose>
+          <geometry><cylinder><radius>0.40</radius><length>0.04</length></cylinder></geometry>
+          <material><ambient>0.30 0.18 0.10 1</ambient><diffuse>0.55 0.35 0.18 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 카운터 (벽쪽 긴 직육면체) — 안내 목적지/매장 분위기 -->
+    <model name="counter">
+      <static>true</static>
+      <pose>0.0 3.0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="col">
+          <pose>0 0 0.5 0 0 0</pose>
+          <geometry><box><size>2.4 0.6 1.0</size></box></geometry>
+        </collision>
+        <visual name="vis">
+          <pose>0 0 0.5 0 0 0</pose>
+          <geometry><box><size>2.4 0.6 1.0</size></box></geometry>
+          <material><ambient>0.20 0.12 0.06 1</ambient><diffuse>0.45 0.28 0.14 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- 숨는팀 대기석(hideout) : 구석 가림 가구 — 로봇이 이 앞에 정밀 도킹/은폐 -->
+    <model name="hideout_cabinet">
+      <static>true</static>
+      <pose>-4.55 -3.0 0 0 0 0</pose>
+      <link name="link">
+        <collision name="col">
+          <pose>0 0 0.30 0 0 0</pose>
+          <geometry><box><size>0.30 1.20 0.60</size></box></geometry>
+        </collision>
+        <visual name="vis">
+          <pose>0 0 0.30 0 0 0</pose>
+          <geometry><box><size>0.30 1.20 0.60</size></box></geometry>
+          <material><ambient>0.18 0.18 0.20 1</ambient><diffuse>0.32 0.32 0.36 1</diffuse></material>
+        </visual>
+      </link>
+    </model>
+
+    <!-- ArUco 마커(id=0) : 대기석 도킹 기준. 가림 가구 전면(+X)에 부착. -->
+    <!-- 로봇은 +X 쪽(매장 안)에서 -X 방향으로 접근해 정밀 도킹한다.            -->
+    <!-- NOTE(R2): 마커 법선 방향이 +X 가 되도록 rpy=0 1.5708 0 로 세웠다.        -->
+    <!--           실제 검출 결과 보고 rpy/pose 미세조정 필요할 수 있음.          -->
+    <include>
+      <uri>model://aruco_0</uri>
+      <name>hideout_aruco</name>
+      <pose>-4.38 -3.0 0.35 0 1.5708 0</pose>
+    </include>
+
   </world>
 </sdf>
