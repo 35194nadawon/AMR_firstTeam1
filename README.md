@@ -6,7 +6,9 @@
 2. wsl에서 로봇 연결: ssh storagy@192.168.0.84 -XC / 패스워드: 123412
 3. 런치
    > cd Desktop/storagy_ws
-   > source /opt/ros/humble/setup.bash
+   >
+   >  source /opt/ros/humble/setup.bash
+   >
    > source install/setup.bash
 
 ###### 터미널1: 
