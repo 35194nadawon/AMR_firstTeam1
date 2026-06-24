@@ -28,6 +28,14 @@ def quaternion_from_yaw(yaw: float) -> Quaternion:
     return q
 
 
+def as_bool(value) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        return value.strip().lower() in ('1', 'true', 'yes', 'on')
+    return bool(value)
+
+
 class GuideNavNode(Node):
     """MVP guide-side Nav2 client.
 
@@ -89,7 +97,7 @@ class GuideNavNode(Node):
         self.get_logger().info(f'/guide/state -> {msg.data}')
 
     def demo_timer_callback(self):
-        if bool(self.get_parameter('demo_person_arrived').value):
+        if as_bool(self.get_parameter('demo_person_arrived').value):
             self.person_arrived = True
             if not self.goal_active and not self.goal_done and not self.freeze:
                 self.get_logger().info('demo_person_arrived is true; starting guide goal.')
@@ -126,7 +134,7 @@ class GuideNavNode(Node):
 
         self.get_logger().info('/hide/freeze false: guide can resume.')
         if (self.person_arrived and not self.goal_done and
-                bool(self.get_parameter('resend_goal_after_resume').value)):
+                as_bool(self.get_parameter('resend_goal_after_resume').value)):
             self.start_fixed_goal()
         else:
             self.set_state(GuideState.GUIDE_READY)
