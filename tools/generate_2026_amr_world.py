@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Gazebo 월드 생성: 1206_2.dae 밑판 + 1206_sim_1 맵 기반 책상 4개(T1~T4) + 진입문.
 
+Nav2 static map(1206_sim_1.pgm)에 layout과 동일한 테이블·의자·hideout footprint를 stamp.
+
 사용:
   python3 tools/generate_2026_amr_world.py
 """
@@ -19,8 +21,10 @@ import numpy as np
 
 PKG_ROOT = Path(__file__).resolve().parents[1]
 MAP_1206 = PKG_ROOT / 'src/storagy/map/1206_sim_1.pgm'
+WALLS_PGM = PKG_ROOT / 'src/storagy/map/1206_sim_1_walls.pgm'
 DEFAULT_META = PKG_ROOT / 'src/storagy/worlds/2026_amr_layout.json'
 DEFAULT_SDF = PKG_ROOT / 'src/storagy/worlds/2026_amr.sdf'
+POINTS_YAML = PKG_ROOT / 'src/storagy_llm/params/points.yaml'
 SRC_DAE = PKG_ROOT / 'src/storagy/meshes/1206_2.dae'
 SIM_DAE = PKG_ROOT / 'src/storagy/meshes/1206_2_sim.dae'
 DAE_NS = 'http://www.collada.org/2005/11/COLLADASchema'
@@ -31,6 +35,12 @@ DAE_REMOVE_GEOMS = {'Cube_028-mesh', 'Cube_029-mesh'}
 
 RES = 0.05
 ORIGIN_1206 = (-5.0, -3.8)
+OCCUPIED = 0
+FREE = 254
+
+# hideout_cabinet SDF collision box
+HIDEOUT_SIZE_X = 0.30
+HIDEOUT_SIZE_Y = 1.20
 
 ROOM_1206 = {'x': [-4.8, 4.8], 'y': [-3.5, 3.5]}
 HIDEOUT_1206 = {'x': -4.55, 'y': -3.0}
@@ -48,22 +58,35 @@ CHAIR_GAP = 0.12
 # T1 -x면: 진입문(-4.47, 0.12) 쪽 통로 — 의자 2개 배치 안 함
 CHAIR_SKIP_SIDES = {'t1': {'nx'}}
 
-# T2/T3 동쪽 통로를 북↔남으로 배회 (Nav2 /scan 장애물로 회피)
+# T2/T3 동쪽 통로를 북↔남으로 배회 (Nav2 /scan 장애물로 회피) — waypoints는 layout에서 계산
 WALKING_PERSON = {
     'name': 'walking_person',
     'skin': 'walk.dae',
     'z': 0.875,
     'delay_start': 5.0,
-    'waypoints': [
-        (0.0, 1.20, -2.20, math.pi / 2),
-        (35.0, 1.20, 2.20, math.pi / 2),
-        (37.0, 1.20, 2.20, -math.pi / 2),
-        (72.0, 1.20, -2.20, -math.pi / 2),
-        (74.0, 1.20, -2.20, math.pi / 2),
-    ],
 }
 
-# 청사진 기준 T1~T4 배치 (scale=1.0 기준 크기·좌표)
+
+def walking_person_waypoints(layout: dict) -> list[tuple[float, float, float, float]]:
+    """T2/T3 +x(의자) 동쪽 통로에서 남↔북 왕복."""
+    by_name = {d['name']: d for d in layout['desks']}
+    t2, t3 = by_name['t2'], by_name['t3']
+    px_chairs = [
+        c['x'] for d in (t2, t3)
+        for c in d.get('chairs', []) if '_px' in c['id']
+    ]
+    walk_x = round(max(px_chairs) + 0.15, 2)
+    y_south = round(t3['y'] - t3['size_y'] / 2 + 0.40, 2)
+    y_north = round(t2['y'] + t2['size_y'] / 2 - 0.40, 2)
+    return [
+        (0.0, walk_x, y_south, math.pi / 2),
+        (35.0, walk_x, y_north, math.pi / 2),
+        (37.0, walk_x, y_north, -math.pi / 2),
+        (72.0, walk_x, y_south, -math.pi / 2),
+        (74.0, walk_x, y_south, math.pi / 2),
+    ]
+
+# 청사진 기준 T1~T4 배치 (origin/dev_hide Gazebo 월드와 동일)
 BASE_BLUEPRINT_DESKS = [
     {'name': 't1', 'label': 'T1', 'x': -3.20, 'y': 0.45, 'size_x': 0.65, 'size_y': 2.20},
     {'name': 't2', 'label': 'T2', 'x': -1.00, 'y': 1.25, 'size_x': 0.65, 'size_y': 1.80},
@@ -148,6 +171,178 @@ def px2world(px: float, py: float, height: int) -> tuple[float, float]:
     wx = ORIGIN_1206[0] + px * RES
     wy = ORIGIN_1206[1] + (height - py) * RES
     return wx, wy
+
+
+def world2px(wx: float, wy: float, height: int) -> tuple[int, int]:
+    px = int(round((wx - ORIGIN_1206[0]) / RES))
+    py = int(round(height - (wy - ORIGIN_1206[1]) / RES))
+    return px, py
+
+
+def stamp_rect(
+    img: np.ndarray,
+    cx: float,
+    cy: float,
+    sx: float,
+    sy: float,
+    yaw: float = 0.0,
+    value: int = OCCUPIED,
+) -> None:
+    """월드 좌표 축정렬/회전 사각형을 PGM에 stamp."""
+    h, _w = img.shape
+    px, py = world2px(cx, cy, h)
+    bw = max(1, int(round(sx / RES)))
+    bh = max(1, int(round(sy / RES)))
+    angle_deg = -math.degrees(yaw)
+    box = cv2.boxPoints(((px, py), (bw, bh), angle_deg)).astype(np.int32)
+    cv2.fillConvexPoly(img, box, int(value))
+
+
+def _clear_region_world(
+    img: np.ndarray,
+    x0: float,
+    x1: float,
+    y0: float,
+    y1: float,
+    value: int = FREE,
+) -> None:
+    h, w = img.shape
+    for py in range(h):
+        for px in range(w):
+            wx, wy = px2world(px, py, h)
+            if x0 <= wx <= x1 and y0 <= wy <= y1:
+                img[py, px] = value
+
+
+def _clear_spawn_corridor(img: np.ndarray, layout: dict) -> None:
+    """진입문~스폰 왼쪽 legacy 벽 돌출(원형 inflation) 제거 — hideout 위쪽 통로만."""
+    door = layout['entry_door']
+    origin = layout['origin']
+    dw = door.get('width_m', 0.85)
+    hide = layout['hideout']
+    hide_top = hide['y'] + HIDEOUT_SIZE_Y / 2 + 0.05
+
+    _clear_region_world(
+        img, door['x'] - 0.55, door['x'] + 0.15,
+        door['y'] - dw / 2 - 0.15, door['y'] + dw / 2 + 0.15,
+    )
+    _clear_region_world(
+        img, origin['x'] - 0.55, origin['x'] + 0.55,
+        origin['y'] - 0.55, origin['y'] + 0.55,
+    )
+    # 왼쪽 벽면 legacy mesh 돌출 — RViz 하단 좌측 원형 장애물
+    _clear_region_world(
+        img, -4.95, -3.85, hide_top, origin['y'] + 0.55,
+    )
+    # 왼쪽 하단 legacy 원형 노이즈 4점 (1206 mesh artifact)
+    _clear_region_world(img, -4.05, -3.05, -2.75, -1.85)
+
+
+def _clear_main_corridor(img: np.ndarray, layout: dict) -> None:
+    """메인 동서 통로(y≈origin) legacy mesh occupied 제거."""
+    oy = layout['origin']['y']
+    room = layout['base']['room_1206']
+    _clear_region_world(img, -4.95, room['x'][1] - 0.2, oy - 0.38, oy + 0.38)
+
+
+def _unknown_to_free_in_room(img: np.ndarray, layout: dict, margin: float = 0.2) -> None:
+    """실내 unknown(205) → free — RViz 청록 노이즈·costmap unknown 제거."""
+    room = layout['base']['room_1206']
+    h, w = img.shape
+    x0, x1 = room['x'][0] + margin, room['x'][1] - margin
+    y0, y1 = room['y'][0] + margin, room['y'][1] - margin
+    for py in range(h):
+        for px in range(w):
+            wx, wy = px2world(px, py, h)
+            if x0 <= wx <= x1 and y0 <= wy <= y1 and img[py, px] == 205:
+                img[py, px] = FREE
+
+
+def denoise_static_map(img: np.ndarray, layout: dict, min_blob: int = 8) -> None:
+    """고립된 소형 occupied/unknown blob 제거 (벽 대형 blob은 유지)."""
+    _unknown_to_free_in_room(img, layout)
+    combined = np.isin(img, [0, 205]).astype(np.uint8)
+    num, labels, stats, _ = cv2.connectedComponentsWithStats(combined, 8)
+    for i in range(1, num):
+        if stats[i, cv2.CC_STAT_AREA] < min_blob:
+            img[labels == i] = FREE
+
+
+def refresh_walls_base(layout: dict, map_path: Path = MAP_1206) -> np.ndarray:
+    """walls.pgm 재생성 — 통로 clearing + denoise."""
+    if WALLS_PGM.is_file():
+        walls = cv2.imread(str(WALLS_PGM), cv2.IMREAD_GRAYSCALE)
+    else:
+        src = cv2.imread(str(map_path), cv2.IMREAD_GRAYSCALE)
+        if src is None:
+            raise RuntimeError(f'cannot read {map_path}')
+        walls = extract_walls_base(src, layout)
+    _clear_main_corridor(walls, layout)
+    _clear_spawn_corridor(walls, layout)
+    denoise_static_map(walls, layout)
+    WALLS_PGM.parent.mkdir(parents=True, exist_ok=True)
+    cv2.imwrite(str(WALLS_PGM), walls)
+    return walls
+
+
+def extract_walls_base(img: np.ndarray, layout: dict) -> np.ndarray:
+    """벽만 남긴 PGM — legacy 테이블 blob·가구 footprint 제거."""
+    walls = img.copy()
+    for reg in TABLE_REGIONS.values():
+        _clear_region_world(walls, reg['x'][0], reg['x'][1], reg['y'][0], reg['y'][1])
+    pad = 0.12
+    for desk in layout['desks']:
+        stamp_rect(
+            walls, desk['x'], desk['y'],
+            desk['size_x'] + pad * 2, desk['size_y'] + pad * 2,
+            desk.get('yaw_rad', 0.0), FREE)
+        for chair in desk.get('chairs', []):
+            stamp_rect(
+                walls, chair['x'], chair['y'],
+                CHAIR_SEAT + pad * 2, CHAIR_SEAT + pad * 2,
+                chair.get('yaw_rad', 0.0), FREE)
+    hide = layout['hideout']
+    stamp_rect(
+        walls, hide['x'], hide['y'],
+        HIDEOUT_SIZE_X + pad * 2, HIDEOUT_SIZE_Y + pad * 2, 0.0, FREE)
+    _clear_spawn_corridor(walls, layout)
+    _clear_main_corridor(walls, layout)
+    return walls
+
+
+def sync_nav_map(walls: np.ndarray, layout: dict) -> np.ndarray:
+    """가제보 layout → Nav2 static map (벽 + 테이블·의자·hideout)."""
+    out = walls.copy()
+    _clear_spawn_corridor(out, layout)
+    _clear_main_corridor(out, layout)
+
+    hide = layout['hideout']
+    stamp_rect(out, hide['x'], hide['y'], HIDEOUT_SIZE_X, HIDEOUT_SIZE_Y, 0.0, OCCUPIED)
+
+    for desk in layout['desks']:
+        stamp_rect(
+            out, desk['x'], desk['y'],
+            desk['size_x'], desk['size_y'],
+            desk.get('yaw_rad', 0.0), OCCUPIED)
+        for chair in desk.get('chairs', []):
+            stamp_rect(
+                out, chair['x'], chair['y'],
+                CHAIR_SEAT, CHAIR_SEAT,
+                chair.get('yaw_rad', 0.0), OCCUPIED)
+
+    denoise_static_map(out, layout)
+    return out
+
+
+def write_nav_map(walls: np.ndarray, layout: dict, out_path: Path) -> None:
+    stamped = sync_nav_map(walls, layout)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    if not cv2.imwrite(str(out_path), stamped):
+        raise RuntimeError(f'PGM write failed: {out_path}')
+
+
+def ensure_walls_base(source: np.ndarray, layout: dict) -> np.ndarray:
+    return refresh_walls_base(layout, MAP_1206)
 
 
 def detect_entry_door(img: np.ndarray) -> dict:
@@ -377,7 +572,7 @@ def desk_and_chairs_sdf(desk: dict) -> str:
     return ''.join(parts)
 
 
-def walking_person_actor_sdf() -> str:
+def walking_person_actor_sdf(layout: dict) -> str:
     """Gazebo actor — walk.dae 스킨, 충돌 박스는 라이다(/scan)에 잡혀 Nav2가 회피."""
     wp = WALKING_PERSON
     waypoints = '\n'.join(
@@ -385,7 +580,7 @@ def walking_person_actor_sdf() -> str:
             <time>{t:.1f}</time>
             <pose>{x:.2f} {y:.2f} {wp['z']:.3f} 0 0 {yaw:.4f}</pose>
           </waypoint>'''
-        for t, x, y, yaw in wp['waypoints']
+        for t, x, y, yaw in walking_person_waypoints(layout)
     )
     return f'''
     <!-- 배회하는 사람 (로봇 라이다 → Nav2 장애물 회피) -->
@@ -424,11 +619,35 @@ def walking_person_actor_sdf() -> str:
     </actor>'''
 
 
-def generate_tactile_path() -> str:
-    """비충돌형 노란색 점자 블록 시각 경로 생성."""
-    points = []
-    
-    def add_line(p1, p2, step=0.3):
+# T1~T3 목표 x (스폰 -3.92에서 +x 이격, idempotent)
+DESK_TARGET_X = {'t1': -2.40, 't2': 0.50, 't3': 0.50}
+
+
+def refresh_desk_chairs(desk: dict) -> None:
+    desk['chairs'] = chairs_for_desk(desk)
+
+
+def apply_desk_spawn_shifts(layout: dict) -> None:
+    """T1~T3 책상·의자 x를 스폰 이격 목표 위치로 설정."""
+    for desk in layout['desks']:
+        tx = DESK_TARGET_X.get(desk['name'])
+        if tx is None:
+            continue
+        desk['x'] = tx
+        refresh_desk_chairs(desk)
+
+
+def generate_tactile_path(layout: dict) -> str:
+    """비충돌형 노란색 점자 블록 시각 경로 (Gazebo 전용, Nav2 맵 미반영)."""
+    points: list[tuple[float, float]] = []
+    origin = layout['origin']
+    oy = origin['y']
+    by_name = {d['name']: d for d in layout['desks']}
+    t1x = by_name['t1']['x']
+    t23x = by_name.get('t2', by_name.get('t3', {'x': 0.0}))['x']
+    t4 = by_name.get('t4', {'x': 3.2, 'y': -0.5})
+
+    def add_line(p1: tuple[float, float], p2: tuple[float, float], step: float = 0.3) -> None:
         x1, y1 = p1
         x2, y2 = p2
         dist = math.hypot(x2 - x1, y2 - y1)
@@ -440,28 +659,17 @@ def generate_tactile_path() -> str:
             t = i / max(1, n_steps)
             points.append((x1 + t * (x2 - x1), y1 + t * (y2 - y1)))
 
-    # Main corridor trunk
-    add_line((-3.9, 0.12), (2.4, 0.12), step=0.35)
-    
-    # T1 branch (goes north to T1)
-    add_line((-3.2, 0.12), (-3.2, 0.70), step=0.3)
-    
-    # T2 branch (goes north to T2 edge)
-    add_line((0.0, 0.12), (0.0, 0.65), step=0.3)
-    
-    # T3 branch (goes south to T3 edge)
-    add_line((0.0, 0.12), (0.0, -0.70), step=0.3)
-    
-    # T4 branch (goes to T4)
-    add_line((2.4, 0.12), (3.0, -0.50), step=0.3)
-    
-    # Deduplicate points that are too close
-    unique_points = []
+    add_line((origin['x'] + 0.02, oy), (2.4, oy), step=0.35)
+    add_line((t1x, oy), (t1x, by_name['t1']['y'] + 0.25), step=0.3)
+    add_line((t23x, oy), (t23x, 0.65), step=0.3)
+    add_line((t23x, oy), (t23x, -0.70), step=0.3)
+    add_line((2.4, oy), (t4['x'] - 0.2, t4['y']), step=0.3)
+
+    unique_points: list[tuple[float, float]] = []
     for p in points:
         if not any(math.hypot(p[0] - u[0], p[1] - u[1]) < 0.15 for u in unique_points):
             unique_points.append(p)
-            
-    # Format to visual-only SDF models
+
     sdf_parts = []
     for idx, (px, py) in enumerate(unique_points):
         sdf_parts.append(f"""    <model name="tactile_block_{idx}">
@@ -486,7 +694,7 @@ def generate_sdf(layout: dict) -> str:
     hide = layout['hideout']
     mesh_uri = layout['base'].get('mesh_uri', '1206_2_sim.dae')
     desks_xml = '\n'.join(desk_and_chairs_sdf(d) for d in layout['desks'])
-    tactile_xml = generate_tactile_path()
+    tactile_xml = generate_tactile_path(layout)
 
     return f"""<?xml version="1.0" ?>
 <sdf version="1.6">
@@ -635,10 +843,200 @@ def generate_sdf(layout: dict) -> str:
       <pose>{hide['x'] + 0.17:.2f} {hide['y']} 0.35 0 1.5708 0</pose>
     </include>
 {tactile_xml}
-{walking_person_actor_sdf()}
+{walking_person_actor_sdf(layout)}
   </world>
 </sdf>
 """
+
+
+# T1~T3 Nav2 goal: 메인 통로/분기점 (스폰 근처 가구·inflation 회피, table4는 의자 접근)
+MIN_GOAL_DIST_FROM_ORIGIN = 2.0
+def _desk_by_name(layout: dict, name: str) -> dict:
+    for d in layout['desks']:
+        if d['name'] == name:
+            return d
+    raise KeyError(name)
+
+
+CORRIDOR_NAV_GOALS = {
+    't1': lambda layout: (
+        round(layout['origin']['x'] + MIN_GOAL_DIST_FROM_ORIGIN, 2),
+        layout['origin']['y'],
+    ),
+    't2': lambda layout: (_desk_by_name(layout, 't2')['x'], 0.95),
+    't3': lambda layout: (_desk_by_name(layout, 't3')['x'], -1.0),
+}
+
+
+def nav_goal_for_desk(
+    desk: dict,
+    img: np.ndarray | None = None,
+    layout: dict | None = None,
+) -> tuple[float, float, float, float]:
+    """Nav2 goal — T1~T3는 스폰에서 먼 통로 접근점, T4는 +x 의자 앞 free 셀."""
+    name = desk['name']
+    if layout is not None and name in CORRIDOR_NAV_GOALS:
+        gx, gy = CORRIDOR_NAV_GOALS[name](layout)
+    else:
+        px_chairs = [c for c in desk.get('chairs', []) if '_px' in c['id']]
+        if px_chairs:
+            gx = sum(c['x'] for c in px_chairs) / len(px_chairs)
+            gy = desk['y']
+        else:
+            gx, gy = desk['x'], desk['y']
+    if layout is not None:
+        ox, oy = layout['origin']['x'], layout['origin']['y']
+        dist = math.hypot(gx - ox, gy - oy)
+        if dist < MIN_GOAL_DIST_FROM_ORIGIN:
+            s = MIN_GOAL_DIST_FROM_ORIGIN / max(dist, 1e-6)
+            gx = ox + (gx - ox) * s
+            gy = oy + (gy - oy) * s
+    if img is not None:
+        gx, gy = snap_to_free(img, gx, gy)
+    return round(gx, 2), round(gy, 2), 1.0, 0.0
+
+
+def nav_goal_for_hideout(layout: dict, img: np.ndarray) -> tuple[float, float, float, float]:
+    """hideout 캐비넷(occupied) 앞 room 쪽 free 셀."""
+    hide = layout['hideout']
+    gx, gy = snap_to_free(img, hide['x'], hide['y'] + 0.8)
+    return gx, gy, hide.get('qz', 0.0), hide.get('qw', 1.0)
+
+
+def is_nav_free(img: np.ndarray, px: int, py: int) -> bool:
+    h, w = img.shape
+    if not (0 <= px < w and 0 <= py < h):
+        return False
+    return int(img[py, px]) >= FREE
+
+
+def snap_to_free(img: np.ndarray, wx: float, wy: float, max_cells: int = 16) -> tuple[float, float]:
+    """seed 주변 BFS로 Nav2 static map free(254+) 셀에 스냅."""
+    from collections import deque
+
+    h = img.shape[0]
+    spx, spy = world2px(wx, wy, h)
+    if is_nav_free(img, spx, spy):
+        return round(wx, 2), round(wy, 2)
+    q: deque[tuple[int, int, int]] = deque([(spx, spy, 0)])
+    seen = {(spx, spy)}
+    while q:
+        x, y, depth = q.popleft()
+        if depth > 0 and is_nav_free(img, x, y):
+            fx, fy = px2world(x, y, h)
+            return round(fx, 2), round(fy, 2)
+        if depth >= max_cells:
+            continue
+        for dx, dy in (
+            (1, 0), (-1, 0), (0, 1), (0, -1),
+            (1, 1), (-1, 1), (1, -1), (-1, -1),
+        ):
+            nx, ny = x + dx, y + dy
+            if (nx, ny) not in seen:
+                seen.add((nx, ny))
+                q.append((nx, ny, depth + 1))
+    return round(wx, 2), round(wy, 2)
+
+
+def run_dashboard_map() -> None:
+    dash = Path(__file__).resolve().parent / 'generate_dashboard_map.py'
+    subprocess.run([sys.executable, str(dash)], check=False)
+
+
+def sync_gazebo_from_layout(
+    layout_path: Path = DEFAULT_META,
+    map_path: Path = MAP_1206,
+    sdf_path: Path = DEFAULT_SDF,
+    apply_shifts: bool = True,
+) -> int:
+    """layout → Gazebo SDF + Nav2 PGM + points.yaml 전체 동기화."""
+    if not layout_path.is_file():
+        print(f'ERROR: layout not found: {layout_path}', file=sys.stderr)
+        return 1
+
+    layout = json.loads(layout_path.read_text(encoding='utf-8'))
+    if apply_shifts:
+        apply_desk_spawn_shifts(layout)
+    for desk in layout['desks']:
+        if 'chairs' not in desk or not desk['chairs']:
+            refresh_desk_chairs(desk)
+
+    img = cv2.imread(str(map_path), cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        print(f'ERROR: cannot read {map_path}', file=sys.stderr)
+        return 1
+
+    layout_path.write_text(
+        json.dumps(layout, indent=2, ensure_ascii=False) + '\n', encoding='utf-8',
+    )
+    sdf_path.write_text(generate_sdf(layout), encoding='utf-8')
+    walls = ensure_walls_base(img, layout)
+    write_nav_map(walls, layout, map_path)
+    sync_points_yaml(layout)
+    run_dashboard_map()
+
+    print(f'[sync-gazebo] layout: {layout_path}')
+    print(f'  sdf:    {sdf_path}')
+    print(f'  navmap: {map_path}')
+    for d in layout['desks']:
+        if d['name'] in DESK_TARGET_X:
+            print(f"  {d['label']}: ({d['x']}, {d['y']})")
+    return 0
+
+
+def sync_from_layout(
+    layout_path: Path = DEFAULT_META,
+    map_path: Path = MAP_1206,
+) -> int:
+    """Pull/merge로 받은 layout.json 기준 Nav2 PGM·points·대시보드만 동기화 (SDF/layout 덮어쓰지 않음)."""
+    if not layout_path.is_file():
+        print(f'ERROR: layout not found: {layout_path}', file=sys.stderr)
+        return 1
+
+    layout = json.loads(layout_path.read_text(encoding='utf-8'))
+    img = cv2.imread(str(map_path), cv2.IMREAD_GRAYSCALE)
+    if img is None:
+        print(f'ERROR: cannot read {map_path}', file=sys.stderr)
+        return 1
+
+    walls = ensure_walls_base(img, layout)
+    write_nav_map(walls, layout, map_path)
+    sync_points_yaml(layout)
+    run_dashboard_map()
+
+    print(f'[sync-from-layout] navmap: {map_path}  (from {layout_path.name})')
+    print(f'  walls:  {WALLS_PGM}')
+    print(f'  sdf:    unchanged')
+    print(f'  layout: unchanged')
+    return 0
+
+
+def sync_points_yaml(layout: dict, path: Path = POINTS_YAML, map_path: Path = MAP_1206) -> None:
+    """LLM Nav2 goal(points.yaml)을 layout 접근 좌표와 동기화."""
+    import yaml
+
+    img = cv2.imread(str(map_path), cv2.IMREAD_GRAYSCALE)
+    data = yaml.safe_load(path.read_text(encoding='utf-8'))
+    name_map = {'t1': 'table1', 't2': 'table2', 't3': 'table3', 't4': 'table4'}
+    ox, oy = layout['origin']['x'], layout['origin']['y']
+    data['places']['origin'] = {'x': ox, 'y': oy, 'qz': 0.0, 'qw': 1.0}
+    door = layout['entry_door']
+    data['places']['entry_door'] = {
+        'x': door['x'], 'y': door['y'], 'qz': 0.0, 'qw': 1.0,
+    }
+    if img is not None:
+        hx, hy, hqz, hqw = nav_goal_for_hideout(layout, img)
+        data['places']['hideout'] = {'x': hx, 'y': hy, 'qz': hqz, 'qw': hqw}
+    for desk in layout['desks']:
+        key = name_map[desk['name']]
+        x, y, qz, qw = nav_goal_for_desk(desk, img, layout)
+        data['places'][key] = {'x': x, 'y': y, 'qz': qz, 'qw': qw}
+    path.write_text(
+        '# 1206_2 밑판 + 청사진 주석 T1~T4 (worlds/2026_amr_layout.json)\n'
+        '# table* 좌표 = 테이블 앞 접근점(맵 free), 중심 아님\n'
+        + yaml.dump(data, allow_unicode=True, sort_keys=False),
+        encoding='utf-8',
+    )
 
 
 def main() -> int:
@@ -650,7 +1048,21 @@ def main() -> int:
                         help='맵 윤곽선 자동 추정 (기본: 청사진 BLUEPRINT_DESKS)')
     parser.add_argument('--table-scale', type=float, default=TABLE_LENGTH_SCALE,
                         help=f'테이블 크기 배율 (기본 {TABLE_LENGTH_SCALE})')
+    parser.add_argument(
+        '--from-layout', action='store_true',
+        help='기존 layout.json 기준 Nav2 PGM·points·대시보드만 동기화 (SDF/layout 덮어쓰지 않음)',
+    )
+    parser.add_argument(
+        '--sync-gazebo', action='store_true',
+        help='layout → Gazebo SDF + Nav2 PGM + points (T1~T3 스폰 이격 shift 포함)',
+    )
     args = parser.parse_args()
+
+    if args.sync_gazebo:
+        return sync_gazebo_from_layout(args.meta, args.map, args.sdf)
+
+    if args.from_layout:
+        return sync_from_layout(args.meta, args.map)
 
     img = cv2.imread(str(args.map), cv2.IMREAD_GRAYSCALE)
     if img is None:
@@ -658,12 +1070,14 @@ def main() -> int:
         return 1
 
     layout = build_layout(img, from_map=args.from_map, table_scale=args.table_scale)
+    walls = ensure_walls_base(img, layout)
+    write_nav_map(walls, layout, args.map)
+    sync_points_yaml(layout)
     args.meta.parent.mkdir(parents=True, exist_ok=True)
     args.meta.write_text(json.dumps(layout, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
     args.sdf.write_text(generate_sdf(layout), encoding='utf-8')
 
-    dash = Path(__file__).resolve().parent / 'generate_dashboard_map.py'
-    subprocess.run([sys.executable, str(dash)], check=False)
+    run_dashboard_map()
 
     print('1206_2.dae base + 4 tables (blueprint'
           f', scale={args.table_scale})' if not args.from_map
@@ -676,6 +1090,8 @@ def main() -> int:
             f"{d['size_x']}x{d['size_y']}m {d['orientation']}  chairs={n_ch}"
         )
     print(f'  mesh:   {layout["base"].get("mesh_uri")}')
+    print(f'  walls:  {WALLS_PGM}')
+    print(f'  navmap: {args.map}  (Gazebo furniture synced)')
     print(f'  layout: {args.meta}')
     print(f'  sdf:    {args.sdf}')
     return 0

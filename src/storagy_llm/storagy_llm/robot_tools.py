@@ -78,6 +78,26 @@ def create_tools(tool_set) -> List[StructuredTool]:
             "description": "사용자가 메뉴판을 정상적으로 수령했거나, 서비스 서빙 완료를 보고하여 로봇의 임무를 종료하고 복귀를 지시할 때 사용합니다.",
             "func": lambda: tool_set.complete_mission()
         },
+        {
+            "name": "get_hide_state",
+            "description": "숨는팀 FSM 현재 상태(FREEZE/GUIDE/DOCK 등)를 조회합니다. '지금 상태', '은폐 중이야?' 등에 사용합니다.",
+            "func": lambda: tool_set.get_hide_state()
+        },
+        {
+            "name": "start_takeover",
+            "description": "사용자가 '기상', '임무 교대', '나와', '손님 왔어' 등 기상/교대를 요청할 때 사용합니다. FREEZE에서 GUIDE로 전환합니다.",
+            "func": lambda: tool_set.start_takeover()
+        },
+        {
+            "name": "finish_mission",
+            "description": "안내 임무가 끝났을 때('미션 끝', '서비스 완료', '은폐처로 돌아가') 복귀를 시작합니다.",
+            "func": lambda: tool_set.finish_mission()
+        },
+        {
+            "name": "finish_docking",
+            "description": "은폐처 도킹이 완료됐을 때('도킹 완료', '은폐 완료') FREEZE 상태로 돌아갑니다.",
+            "func": lambda: tool_set.finish_docking()
+        },
     ]
 
     tools = [
@@ -118,6 +138,14 @@ class ToolSet(Node):
         self.wander_pub = self.create_publisher(Bool, '/wander_enabled', wander_qos)
         self.event_pub = self.create_publisher(String, '/robot_events', 10)
 
+        # Hide FSM (P1) — LLM → /hide/* topic pub
+        self.hide_state = 'UNKNOWN'
+        self.hide_takeover_pub = self.create_publisher(Bool, '/hide/takeover_start', 10)
+        self.hide_mission_done_pub = self.create_publisher(Bool, '/hide/mission_done', 10)
+        self.hide_dock_done_pub = self.create_publisher(Bool, '/hide/dock_done', 10)
+        self.create_subscription(
+            String, '/hide/state', self._on_hide_state, wander_qos)
+
         self.goal_handle = None
         # R1 / R4 integration with hide team
         self.takeover_pub = self.create_publisher(Bool, '/hide/takeover_start', 10)
@@ -137,7 +165,38 @@ class ToolSet(Node):
         msg.data = text
         self.event_pub.publish(msg)
 
+    def _on_hide_state(self, msg: String):
+        self.hide_state = msg.data
+
+    def _require_guide(self) -> str | None:
+        if self.hide_state == 'FREEZE':
+            return ("[HIDE] FREEZE(위장) 상태라 이동할 수 없습니다. "
+                    "먼저 start_takeover로 기상/임무 교대를 해 주세요.")
+        return None
+
+    def get_hide_state(self) -> str:
+        return f"[HIDE] 현재 상태: {self.hide_state}"
+
+    def start_takeover(self) -> str:
+        self.hide_takeover_pub.publish(Bool(data=True))
+        self.publish_event("임무 교대(기상) 신호 발행")
+        return "[HIDE] takeover_start 발행 — FREEZE→GUIDE 전이 요청"
+
+    def finish_mission(self) -> str:
+        self.hide_mission_done_pub.publish(Bool(data=True))
+        self.publish_event("미션 완료 신호 발행")
+        return "[HIDE] mission_done 발행 — 복귀(DOCK) 전이 요청"
+
+    def finish_docking(self) -> str:
+        self.hide_dock_done_pub.publish(Bool(data=True))
+        self.publish_event("도킹 완료 신호 발행")
+        return "[HIDE] dock_done 발행 — FREEZE 전이 요청"
+
     def set_wander(self, enabled: bool) -> str:
+        if enabled:
+            blocked = self._require_guide()
+            if blocked:
+                return blocked
         self.wander_enabled = enabled
         msg = Bool()
         msg.data = enabled
@@ -185,6 +244,9 @@ class ToolSet(Node):
         return None
 
     def teleop_move(self, direction, distance_m) -> str:
+        blocked = self._require_guide()
+        if blocked:
+            return blocked
         try:
             distance = abs(float(distance_m))
         except (TypeError, ValueError):
@@ -231,6 +293,9 @@ class ToolSet(Node):
         return f"[TELEOP] {label} {traveled:.2f}m 이동을 완료했습니다."
 
     def teleop_rotate(self, direction, angle_deg) -> str:
+        blocked = self._require_guide()
+        if blocked:
+            return blocked
         try:
             angle = abs(float(angle_deg))
         except (TypeError, ValueError):
@@ -414,6 +479,9 @@ class ToolSet(Node):
         return "[GUIDE] 안내 주행을 시작합니다."
 
     def move_to_location(self, place: str):
+        blocked = self._require_guide()
+        if blocked:
+            return blocked
         if place not in self.places:
             return f"[ERR] Unknown place: {place}"
 

@@ -19,7 +19,7 @@ source /opt/storagy_sim_origin_ws/install/setup.bash
 
 cd /opt/storagy_sim_origin_ws
 echo "==================================================================="
-echo " Starting Storagy simulation (Gazebo + Nav2 + YOLO + LLM + Web)"
+echo " Starting Storagy simulation (Gazebo + Nav2 + YOLO + LLM + P1 FSM + Web)"
 echo " Web dashboard will be available at: http://localhost:8090"
 echo "==================================================================="
 exec ros2 launch storagy full_bringup.launch.py

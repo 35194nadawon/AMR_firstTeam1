@@ -7,12 +7,14 @@
   3. yolo_detector.py             (YOLO 사람 감지)
   4. storagy_llm agent_service    (LLM 에이전트 서비스)
   5. storagy_llm web_dashboard    (웹 대시보드)
+  6. hide_state_machine    (P1 FSM — 기본 on, enable_hide:=false 로 끄기)
 
 agent_client 는 대화형 CLI 이므로 여기 포함하지 않는다. 별도 터미널에서:
   ros2 run storagy_llm agent_client
 
 사용법:
   ros2 launch storagy full_bringup.launch.py
+  ros2 launch storagy full_bringup.launch.py enable_hide:=false
 """
 
 import os
@@ -22,9 +24,11 @@ from launch import LaunchDescription
 from launch.actions import (
     DeclareLaunchArgument,
     ExecuteProcess,
+    GroupAction,
     IncludeLaunchDescription,
     TimerAction,
 )
+from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
@@ -36,9 +40,12 @@ def generate_launch_description():
     ws_root = os.path.abspath(
         os.path.join(storagy_share, '..', '..', '..', '..'))
     scripts_dir = os.path.join(ws_root, 'src', 'storagy', 'scripts')
+    hide_fsm_script = os.path.join(
+        ws_root, 'src', 'storagy_hide', 'storagy_hide', 'state_machine.py')
 
     use_slam = LaunchConfiguration('use_slam')
     use_nav2 = LaunchConfiguration('use_nav2')
+    enable_hide = LaunchConfiguration('enable_hide')
 
     simulation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -82,9 +89,19 @@ def generate_launch_description():
         output='screen',
     )
 
+    # Phase 1: P1 FSM — yolo/wander 와 동일하게 src Python 직접 실행
+    hide_state_machine = ExecuteProcess(
+        cmd=['python3', hide_fsm_script],
+        cwd=ws_root,
+        output='screen',
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument('use_slam', default_value='false'),
         DeclareLaunchArgument('use_nav2', default_value='true'),
+        DeclareLaunchArgument(
+            'enable_hide', default_value='true',
+            description='true=숨는팀 P1 FSM(state_machine) 자동 기동'),
         simulation,
         # Gazebo/Nav2 가 어느 정도 올라온 뒤 나머지 노드 시작
         TimerAction(period=5.0, actions=[
@@ -93,4 +110,13 @@ def generate_launch_description():
             web_dashboard,
         ]),
         TimerAction(period=15.0, actions=[wander_node]),
+        TimerAction(
+            period=20.0,
+            actions=[
+                GroupAction(
+                    actions=[hide_state_machine],
+                    condition=IfCondition(enable_hide),
+                ),
+            ],
+        ),
     ])

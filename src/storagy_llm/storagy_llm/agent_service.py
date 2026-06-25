@@ -8,6 +8,7 @@ from ament_index_python.packages import get_package_share_directory
 import yaml
 import cv2
 import base64
+import os
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseStamped
@@ -18,8 +19,9 @@ from langgraph.checkpoint.memory import MemorySaver
 
 
 llm_dir = get_package_share_directory('storagy_llm')
+# docker-compose env_file → 컨테이너 환경변수. 패키지 .env 는 빈 placeholder 일 수 있음.
 env_file_path = Path(llm_dir) / '.env'
-load_dotenv(dotenv_path=env_file_path)
+load_dotenv(dotenv_path=env_file_path, override=False)
 
 prompt_file = Path(llm_dir) / 'params/prompt.yaml'
 with open(prompt_file, 'r', encoding='utf-8') as f:
@@ -30,6 +32,14 @@ class AgentLLM(Node):
         super().__init__('agent_llm')
 
         self.srv = self.create_service(Agent, 'llm_agent', self.handle_question)
+
+        api_key = os.getenv('OPENAI_API_KEY', '').strip()
+        if not api_key:
+            self.get_logger().error(
+                'OPENAI_API_KEY 가 비어 있습니다. 프로젝트 루트 .env 에 키를 넣은 뒤 '
+                '`docker compose up -d --force-recreate` 로 컨테이너를 다시 띄우세요. '
+                '(restart 만으로는 env 가 갱신되지 않습니다.)'
+            )
         self.llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
         
         self.bridge = CvBridge()
@@ -112,12 +122,26 @@ class AgentLLM(Node):
 
     def handle_question(self, request, response):
         self.get_logger().info(f"💬: {request.question}"+"\n")
+        if not os.getenv('OPENAI_API_KEY', '').strip():
+            response.answer = (
+                "OpenAI API 키가 설정되지 않았습니다. "
+                "프로젝트 루트 `.env`에 `OPENAI_API_KEY=...`를 넣은 뒤 "
+                "`docker compose up -d --force-recreate`로 컨테이너를 다시 시작해 주세요."
+            )
+            return response
         try:
             answer = self.process_query(request.question)
             response.answer = answer
         except Exception as e:
-            self.get_logger().info(str(e))
-            response.answer = "잘 이해하지 못했어요.. 자세하게 물어봐 주시겠어요?"
+            self.get_logger().error(f"LLM query failed: {e}")
+            err = str(e).lower()
+            if 'api_key' in err or 'authentication' in err or 'incorrect api key' in err:
+                response.answer = (
+                    "OpenAI API 키가 유효하지 않거나 인증에 실패했습니다. "
+                    "`.env`의 키를 확인한 뒤 `docker compose up -d --force-recreate`를 실행해 주세요."
+                )
+            else:
+                response.answer = f"처리 중 오류가 발생했습니다: {e}"
         return response
     
 def main(args=None):

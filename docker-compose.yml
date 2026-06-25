@@ -23,6 +23,8 @@ services:
       #      docker compose exec storagy-sim rebuild_ws.sh
       #    then restart the simulation.
       - ./src:/opt/storagy_sim_origin_ws/src
+      - ./tools:/opt/storagy_sim_origin_ws/tools:ro
+      - ./docker/rebuild_ws.sh:/usr/local/bin/rebuild_ws.sh:ro
     shm_size: "1gb"   # Gazebo/RViz need more shared memory than the 64MB default
     security_opt:
       - seccomp:unconfined

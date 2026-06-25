@@ -78,19 +78,43 @@ docker compose restart
 
 T2/T3는 x=0 대칭, T1/T4는 x=±2.75 대칭입니다.
 
-### 실행 구성 (2단)
+### 실행 구성 (Phase 1 — FSM 런치 통합)
 
 | 단계 | 명령 | 포함 |
 |------|------|------|
-| 1. 베이스 | Docker 기동 → `full_bringup` (자동) | Gazebo, Nav2, YOLO, LLM, 웹 대시보드 |
-| 2. 숨는팀 | `ros2 launch storagy_hide hide_bringup.launch.py` | P1 FSM, ArUco 도킹, P3 사람감지·동적 코스트맵 |
+| 1. 베이스 | Docker → `full_bringup` (자동) | Gazebo, Nav2, YOLO, LLM, 웹 대시보드 |
+| 2. P1 FSM | `enable_hide:=true` | `hide_state_machine` (20초 후 자동) |
 
-숨는팀은 **베이스가 떠 있는 상태에서 별도 터미널**로 실행합니다.
+**P1 FSM을 가제보 로봇에 자동 적용** (Phase 1):
 
 ```bash
-docker compose exec -it storagy-sim bash
-source /opt/ros/humble/setup.bash
-source /opt/storagy_sim_origin_ws/install/setup.bash
+ros2 launch storagy full_bringup.launch.py enable_hide:=true
+```
+
+Docker noVNC 터미널에서 `run_sim.sh` 대신 위 명령을 쓰거나, `docker/run_sim.sh` 마지막 줄에 `enable_hide:=true` 추가.
+
+기동 후 FREEZE → `/cmd_vel=0`, `/wander_enabled=false` (로봇 정지·배회 꺼짐).
+
+테스트 (별도 터미널):
+
+```bash
+ros2 topic echo /hide/state --qos-reliability reliable --qos-durability transient_local --once
+ros2 topic pub /hide/takeover_start std_msgs/msg/Bool "{data: true}" --once
+```
+
+**P3·ArUco 등 나머지 hide 노드**는 아직 수동:
+
+```bash
+ros2 launch storagy_hide hide_bringup.launch.py
+```
+
+(Phase 1에서는 `state_machine`만 `full_bringup`에 포함 — hide_bringup과 **동시에** 켜면 FSM 중복 실행 주의)
+
+### 실행 구성 (2단, P3 이후)
+
+숨는팀 전체(P3·ArUco)는 **베이스 + enable_hide FSM** 위에 별도 터미널:
+
+```bash
 ros2 launch storagy_hide hide_bringup.launch.py
 ```
 
