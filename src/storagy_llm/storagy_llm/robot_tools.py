@@ -10,6 +10,7 @@ from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from nav2_msgs.action import NavigateToPose
 from geometry_msgs.msg import PoseStamped, Twist
 from std_msgs.msg import Bool, String
+from storagy_interfaces.srv import Emotion
 from rcl_interfaces.srv import SetParameters
 from rcl_interfaces.msg import Parameter
 from langchain_core.tools import StructuredTool
@@ -129,6 +130,7 @@ class ToolSet(Node):
             Bool, '/hide/takeover_start', 10)
         self.mission_done_pub = self.create_publisher(
             Bool, '/hide/mission_done', 10)
+        self.emotion_cli = self.create_client(Emotion, '/hide/set_emotion')
 
     def publish_llm_active(self, active: bool):
         msg = Bool()
@@ -469,5 +471,9 @@ class ToolSet(Node):
         self._stop_all_motion()
         self.publish_llm_active(False)
         self.mission_done_pub.publish(Bool(data=True))
+        if self.emotion_cli.service_is_ready():
+            req = Emotion.Request()
+            req.emotion = 'basic'
+            self.emotion_cli.call_async(req)
         self.publish_event("Guide mission complete; hide return requested")
         return "[MISSION] Guide mission complete. Returning control to hide team."

@@ -28,6 +28,7 @@
         <span id="nav-badge" class="badge idle"><span class="dot"></span>대기 중</span>
         <span id="wander-badge" class="badge idle"><span class="dot"></span>랜덤 꺼짐</span>
         <span id="people-badge" class="badge idle">👤 감지 꺼짐</span>
+        <span id="hide-badge" class="badge idle"><span class="dot"></span>위장 대기 중</span>
       </div>
     </header>
 
@@ -35,10 +36,10 @@
       <section class="card" id="map-panel">
         <div class="card-head">
           <h2>매장 지도</h2>
-          <span class="hint">T1~T4 · DOOR · HIDE · ● 로봇 · ⚑ 목표</span>
+          <span class="hint">● 로봇 위치 &nbsp;⚑ 이동 목표</span>
         </div>
         <div id="map-wrap">
-          <img id="floor" src="1206_top.png" alt="2026 AMR 교실 탑뷰">
+          <img id="floor" src="1206_top.png" alt="식당 탑뷰 지도">
           <canvas id="overlay"></canvas>
           <div id="pose-waiting">로봇 위치 수신 대기 중…</div>
         </div>
@@ -70,6 +71,9 @@
           <input id="chat-input" placeholder="메시지를 입력하세요…" maxlength="300">
           <button type="submit" id="chat-send">보내기</button>
         </form>
+        <div class="chat-actions" style="margin-top: 10px; display: flex; gap: 8px;">
+          <button id="btn-service-done" style="flex: 1; padding: 10px; background: #d9534f; color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; font-family: inherit; font-size: 0.95rem; transition: background 0.2s;">🍽️ 서비스 완료 (복귀)</button>
+        </div>
       </section>
 
       <section class="card" id="log-panel">

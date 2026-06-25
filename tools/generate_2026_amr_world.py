@@ -1,7 +1,7 @@
-#!/usr/bin/env python3
-"""Gazebo 월드 생성: 1206_2.dae 밑판 + 1206_sim_1 맵 기반 책상 4개(T1~T4) + 진입문.
+﻿#!/usr/bin/env python3
+"""Gazebo ?붾뱶 ?앹꽦: 1206_2.dae 諛묓뙋 + 1206_sim_1 留?湲곕컲 梨낆긽 4媛?T1~T4) + 吏꾩엯臾?
 
-사용:
+?ъ슜:
   python3 tools/generate_2026_amr_world.py
 """
 from __future__ import annotations
@@ -25,7 +25,7 @@ SRC_DAE = PKG_ROOT / 'src/storagy/meshes/1206_2.dae'
 SIM_DAE = PKG_ROOT / 'src/storagy/meshes/1206_2_sim.dae'
 DAE_NS = 'http://www.collada.org/2005/11/COLLADASchema'
 
-# 1206_2.dae 중앙 소형 테이블 2개(Cube_016/017) — brown box T2/T3와 중복
+# 1206_2.dae 以묒븰 ?뚰삎 ?뚯씠釉?2媛?Cube_016/017) ??brown box T2/T3? 以묐났
 DAE_REMOVE_NODES = {'Cube_016', 'Cube_017'}
 DAE_REMOVE_GEOMS = {'Cube_028-mesh', 'Cube_029-mesh'}
 
@@ -45,10 +45,9 @@ CHAIR_BACK_H = 0.38
 CHAIR_LEG_H = 0.43
 CHAIR_GAP = 0.12
 
-# T1 -x면: 진입문(-4.47, 0.12) 쪽 통로 — 의자 2개 배치 안 함
-CHAIR_SKIP_SIDES = {'t1': {'nx'}}
+# T1 -x硫? 吏꾩엯臾?-4.47, 0.12) 履??듬줈 ???섏옄 2媛?諛곗튂 ????CHAIR_SKIP_SIDES = {'t1': {'nx'}}
 
-# T2/T3 동쪽 통로를 북↔남으로 배회 (Nav2 /scan 장애물로 회피)
+# T2/T3 ?숈そ ?듬줈瑜?遺곣넄?⑥쑝濡?諛고쉶 (Nav2 /scan ?μ븷臾쇰줈 ?뚰뵾)
 WALKING_PERSON = {
     'name': 'walking_person',
     'skin': 'walk.dae',
@@ -63,7 +62,7 @@ WALKING_PERSON = {
     ],
 }
 
-# 청사진 기준 T1~T4 배치 (scale=1.0 기준 크기·좌표)
+# 泥?궗吏?湲곗? T1~T4 諛곗튂 (scale=1.0 湲곗? ?ш린쨌醫뚰몴)
 BASE_BLUEPRINT_DESKS = [
     {'name': 't1', 'label': 'T1', 'x': -2.75, 'y': 0.45, 'size_x': 0.65, 'size_y': 2.20},
     {'name': 't2', 'label': 'T2', 'x': -1.00, 'y': 1.25, 'size_x': 0.65, 'size_y': 1.80},
@@ -71,9 +70,9 @@ BASE_BLUEPRINT_DESKS = [
     {'name': 't4', 'label': 'T4', 'x': 2.75, 'y': -0.50, 'size_x': 0.65, 'size_y': 2.20},
 ]
 
-# 세로 길이·두께 동일 비율 확대 (T2/T3 간격은 겹침 없이 자동 벌림)
+# ?몃줈 湲몄씠쨌?먭퍡 ?숈씪 鍮꾩쑉 ?뺣? (T2/T3 媛꾧꺽? 寃뱀묠 ?놁씠 ?먮룞 踰뚮┝)
 TABLE_LENGTH_SCALE = 1.25
-TABLE_PAIR_EDGE_GAP = 0.35   # T2–T3 가장자리 간격
+TABLE_PAIR_EDGE_GAP = 0.35   # T2?밫3 媛?μ옄由?媛꾧꺽
 
 
 def _pair_half_sep(size_y_t2: float, size_y_t3: float) -> float:
@@ -86,7 +85,7 @@ CHAIR_COLORS = {
     't4': (0.58, 0.70, 0.42),
 }
 
-# T1~T4 검색 영역 (--from-map 옵션용, 맵 윤곽선 자동 추정)
+# T1~T4 寃???곸뿭 (--from-map ?듭뀡?? 留??ㅺ낸???먮룞 異붿젙)
 TABLE_REGIONS = {
     'T1': {'x': (-3.5, -2.2), 'y': (0.5, 2.5)},
     'T2': {'x': (-0.5, 2.5), 'y': (2.8, 3.5)},
@@ -96,7 +95,7 @@ TABLE_REGIONS = {
 
 
 def ensure_sim_dae() -> str:
-    """DAE에서 중앙 소형 테이블 2개 제거한 1206_2_sim.dae 생성."""
+    """DAE?먯꽌 以묒븰 ?뚰삎 ?뚯씠釉?2媛??쒓굅??1206_2_sim.dae ?앹꽦."""
     ET.register_namespace('', DAE_NS)
     tree = ET.parse(SRC_DAE)
     root = tree.getroot()
@@ -119,7 +118,7 @@ def ensure_sim_dae() -> str:
 
 
 def chairs_for_desk(spec: dict) -> list[dict]:
-    """세로 테이블 가로면(±x)에만 의자 2개씩 — 긴 변(y) 방향 나란히."""
+    """?몃줈 ?뚯씠釉?媛濡쒕㈃(짹x)?먮쭔 ?섏옄 2媛쒖뵫 ??湲?蹂(y) 諛⑺뼢 ?섎???"""
     tx, ty = spec['x'], spec['y']
     hw = spec['size_x'] / 2.0
     hl = spec['size_y'] / 2.0
@@ -151,7 +150,7 @@ def px2world(px: float, py: float, height: int) -> tuple[float, float]:
 
 
 def detect_entry_door(img: np.ndarray) -> dict:
-    """왼쪽 벽 진입문 — free 공간 중 좌측(x<-4.25) 중앙대."""
+    """?쇱そ 踰?吏꾩엯臾???free 怨듦컙 以?醫뚯륫(x<-4.25) 以묒븰?."""
     h, _ = img.shape
     free = img == 254
     fy, fx = np.where(free)
@@ -172,12 +171,12 @@ def detect_entry_door(img: np.ndarray) -> dict:
 
 
 def _largest_component_bbox(region_mask: np.ndarray) -> tuple[float, float, float, float]:
-    """영역 마스크에서 가장 큰 connected component의 축정렬 bbox."""
+    """?곸뿭 留덉뒪?ъ뿉??媛????connected component??異뺤젙??bbox."""
     n, _labels, stats, centroids = cv2.connectedComponentsWithStats(
         region_mask.astype(np.uint8), connectivity=8,
     )
     if n <= 1:
-        raise RuntimeError('occupied connected component를 찾지 못했습니다.')
+        raise RuntimeError('occupied connected component瑜?李얠? 紐삵뻽?듬땲??')
     idx = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
     px, py, pw, ph, _area = stats[idx]
     cx, cy = centroids[idx]
@@ -190,7 +189,7 @@ def _largest_component_bbox(region_mask: np.ndarray) -> tuple[float, float, floa
 
 
 def scaled_blueprint_specs(scale: float = TABLE_LENGTH_SCALE) -> list[dict]:
-    """비율 유지 확대 + T2/T3를 T1–T4 중간에 대칭 배치."""
+    """鍮꾩쑉 ?좎? ?뺣? + T2/T3瑜?T1?밫4 以묎컙???移?諛곗튂."""
     by_name = {d['name']: dict(d) for d in BASE_BLUEPRINT_DESKS}
     for spec in by_name.values():
         spec['size_x'] = round(spec['size_x'] * scale, 2)
@@ -208,7 +207,7 @@ def scaled_blueprint_specs(scale: float = TABLE_LENGTH_SCALE) -> list[dict]:
 
 
 def blueprint_desks(scale: float = TABLE_LENGTH_SCALE) -> list[dict]:
-    """청사진 주석 기준 T1~T4 (세로 배치, 비율 확대)."""
+    """泥?궗吏?二쇱꽍 湲곗? T1~T4 (?몃줈 諛곗튂, 鍮꾩쑉 ?뺣?)."""
     desks: list[dict] = []
     for spec in scaled_blueprint_specs(scale):
         chairs = chairs_for_desk(spec)
@@ -228,7 +227,7 @@ def blueprint_desks(scale: float = TABLE_LENGTH_SCALE) -> list[dict]:
 
 
 def detect_tables(img: np.ndarray) -> list[dict]:
-    """1206 맵 occupied 윤곽선에서 T1~T4 중심·크기·방향(최대 CC bbox) 추정."""
+    """1206 留?occupied ?ㅺ낸?좎뿉??T1~T4 以묒떖쨌?ш린쨌諛⑺뼢(理쒕? CC bbox) 異붿젙."""
     h, w = img.shape
     occ = img == 0
 
@@ -245,7 +244,7 @@ def detect_tables(img: np.ndarray) -> list[dict]:
                 if x0 <= wx <= x1 and y0 <= wy <= y1:
                     region_mask[py, px] = 1
         if region_mask.sum() < 5:
-            raise RuntimeError(f'{name} 영역에서 occupied 픽셀을 찾지 못했습니다.')
+            raise RuntimeError(f'{name} ?곸뿭?먯꽌 occupied ?쎌???李얠? 紐삵뻽?듬땲??')
 
         cx, cy, xspan, yspan = _largest_component_bbox(region_mask)
 
@@ -304,7 +303,7 @@ def build_layout(img: np.ndarray, *, from_map: bool = False,
 
 
 def chair_model_sdf(desk: dict, chair: dict) -> str:
-    """간단한 의자(좌판+등받이+4다리)."""
+    """媛꾨떒???섏옄(醫뚰뙋+?깅컺??4?ㅻ━)."""
     x, y, yaw = chair['x'], chair['y'], chair['yaw_rad']
     cr, cg, cb = CHAIR_COLORS.get(desk['name'], (0.6, 0.6, 0.6))
     leg = 0.04
@@ -378,7 +377,7 @@ def desk_and_chairs_sdf(desk: dict) -> str:
 
 
 def walking_person_actor_sdf() -> str:
-    """Gazebo actor — walk.dae 스킨, 충돌 박스는 라이다(/scan)에 잡혀 Nav2가 회피."""
+    """Gazebo actor ??walk.dae ?ㅽ궓, 異⑸룎 諛뺤뒪???쇱씠??/scan)???≫? Nav2媛 ?뚰뵾."""
     wp = WALKING_PERSON
     waypoints = '\n'.join(
         f'''          <waypoint>
@@ -388,7 +387,7 @@ def walking_person_actor_sdf() -> str:
         for t, x, y, yaw in wp['waypoints']
     )
     return f'''
-    <!-- 배회하는 사람 (로봇 라이다 → Nav2 장애물 회피) -->
+    <!-- 諛고쉶?섎뒗 ?щ엺 (濡쒕큸 ?쇱씠????Nav2 ?μ븷臾??뚰뵾) -->
     <actor name="{wp['name']}">
       <link name="link">
         <inertial>
@@ -424,12 +423,69 @@ def walking_person_actor_sdf() -> str:
     </actor>'''
 
 
+def generate_tactile_path() -> str:
+    """鍮꾩땐?뚰삎 ?몃????먯옄 釉붾줉 ?쒓컖 寃쎈줈 ?앹꽦."""
+    points = []
+
+    def add_line(p1, p2, step=0.3):
+        x1, y1 = p1
+        x2, y2 = p2
+        dist = math.hypot(x2 - x1, y2 - y1)
+        if dist < 0.01:
+            points.append((x1, y1))
+            return
+        n_steps = int(dist / step)
+        for i in range(n_steps + 1):
+            t = i / max(1, n_steps)
+            points.append((x1 + t * (x2 - x1), y1 + t * (y2 - y1)))
+
+    # Main corridor trunk
+    add_line((-3.9, 0.12), (2.4, 0.12), step=0.35)
+
+    # T1 branch (goes north to T1)
+    add_line((-2.75, 0.12), (-2.75, 0.70), step=0.3)
+
+    # T2 branch (goes north to T2 edge)
+    add_line((0.0, 0.12), (0.0, 0.65), step=0.3)
+
+    # T3 branch (goes south to T3 edge)
+    add_line((0.0, 0.12), (0.0, -0.70), step=0.3)
+
+    # T4 branch (goes to T4)
+    add_line((2.4, 0.12), (2.75, -0.50), step=0.3)
+
+    # Deduplicate points that are too close
+    unique_points = []
+    for p in points:
+        if not any(math.hypot(p[0] - u[0], p[1] - u[1]) < 0.15 for u in unique_points):
+            unique_points.append(p)
+
+    # Format to visual-only SDF models
+    sdf_parts = []
+    for idx, (px, py) in enumerate(unique_points):
+        sdf_parts.append(f"""    <model name="tactile_block_{idx}">
+      <static>true</static>
+      <pose>{px:.3f} {py:.3f} 0.012 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><box><size>0.25 0.25 0.003</size></box></geometry>
+          <material>
+            <ambient>0.95 0.75 0.06 1.0</ambient>
+            <diffuse>0.95 0.75 0.06 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>""")
+    return '\n'.join(sdf_parts)
+
+
 def generate_sdf(layout: dict) -> str:
     ex, ey, ez = layout['base']['pose']
     door = layout['entry_door']
     hide = layout['hideout']
     mesh_uri = layout['base'].get('mesh_uri', '1206_2_sim.dae')
     desks_xml = '\n'.join(desk_and_chairs_sdf(d) for d in layout['desks'])
+    tactile_xml = generate_tactile_path()
 
     return f"""<?xml version="1.0" ?>
 <sdf version="1.6">
@@ -497,7 +553,7 @@ def generate_sdf(layout: dict) -> str:
       </link>
     </model>
 
-    <!-- 강사님 제공 1206_2.dae 밑판 + T1~T4 책상 + 진입문 -->
+    <!-- 媛뺤궗???쒓났 1206_2.dae 諛묓뙋 + T1~T4 梨낆긽 + 吏꾩엯臾?-->
     <model name="environment_1206_2">
       <static>true</static>
       <pose>{ex} {ey} {ez} 0 0 0</pose>
@@ -577,6 +633,7 @@ def generate_sdf(layout: dict) -> str:
       <name>hideout_aruco</name>
       <pose>{hide['x'] + 0.17:.2f} {hide['y']} 0.35 0 1.5708 0</pose>
     </include>
+{tactile_xml}
 {walking_person_actor_sdf()}
   </world>
 </sdf>
@@ -589,9 +646,9 @@ def main() -> int:
     parser.add_argument('--meta', type=Path, default=DEFAULT_META)
     parser.add_argument('--sdf', type=Path, default=DEFAULT_SDF)
     parser.add_argument('--from-map', action='store_true',
-                        help='맵 윤곽선 자동 추정 (기본: 청사진 BLUEPRINT_DESKS)')
+                        help='留??ㅺ낸???먮룞 異붿젙 (湲곕낯: 泥?궗吏?BLUEPRINT_DESKS)')
     parser.add_argument('--table-scale', type=float, default=TABLE_LENGTH_SCALE,
-                        help=f'테이블 크기 배율 (기본 {TABLE_LENGTH_SCALE})')
+                        help=f'?뚯씠釉??ш린 諛곗쑉 (湲곕낯 {TABLE_LENGTH_SCALE})')
     args = parser.parse_args()
 
     img = cv2.imread(str(args.map), cv2.IMREAD_GRAYSCALE)

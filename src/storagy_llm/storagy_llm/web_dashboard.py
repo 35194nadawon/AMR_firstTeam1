@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 """Web dashboard bridge node.
 
 Serves the static frontend, streams the robot pose / nav goal over SSE,
@@ -36,10 +36,10 @@ HTTP_PORT = 8090  # 8080 is taken by Open WebUI on this machine
 CHAT_TIMEOUT_SEC = 90.0
 
 SERVICE_DOWN_MSG = (
-    "LLM 에이전트 서비스(agent_service)가 아직 실행되지 않았습니다. "
-    "터미널에서 `ros2 run storagy_llm agent_service`를 먼저 실행해 주세요."
+    "LLM ?먯씠?꾪듃 ?쒕퉬??agent_service)媛 ?꾩쭅 ?ㅽ뻾?섏? ?딆븯?듬땲?? "
+    "?곕??먯뿉??`ros2 run storagy_llm agent_service`瑜?癒쇱? ?ㅽ뻾??二쇱꽭??"
 )
-CHAT_TIMEOUT_MSG = "응답 시간이 초과되었습니다. 잠시 후 다시 시도해 주세요."
+CHAT_TIMEOUT_MSG = "?묐떟 ?쒓컙??珥덇낵?섏뿀?듬땲?? ?좎떆 ???ㅼ떆 ?쒕룄??二쇱꽭??"
 
 
 def yaw_from_quaternion(qx, qy, qz, qw):
@@ -94,7 +94,7 @@ class WebDashboard(Node):
         self.wander_sub = self.create_subscription(
             Bool, '/wander_enabled', self.wander_callback, wander_qos)
 
-        camera_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE)
+        camera_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.camera_sub = self.create_subscription(
             Image, '/yolo/detected_image', self.camera_callback, camera_qos)
 
@@ -103,6 +103,12 @@ class WebDashboard(Node):
 
         self.agent_cli = self.create_client(Agent, 'llm_agent')
         self.pose_timer = self.create_timer(0.1, self.update_pose)
+
+        # R1 integration: subscribe to hide team state
+        self.hide_state = 'FREEZE'
+        self.hide_state_sub = self.create_subscription(
+            String, '/hide/state', self.hide_state_callback, 10)
+
         self.get_logger().info("Web dashboard node initialized.")
 
     def add_event(self, text: str):
@@ -117,6 +123,12 @@ class WebDashboard(Node):
 
     def event_callback(self, msg: String):
         self.add_event(msg.data)
+
+    def hide_state_callback(self, msg: String):
+        with self.lock:
+            if self.hide_state != msg.data:
+                self.add_event(f"?⑤뒗? ?곹깭 蹂寃? {msg.data}")
+            self.hide_state = msg.data
 
     def wander_callback(self, msg: Bool):
         with self.lock:
@@ -160,12 +172,12 @@ class WebDashboard(Node):
             is_new_goal = self.goal is None
             self.goal = (last.x, last.y)
         if is_new_goal:
-            self.add_event(f"이동 목표 설정 (x={last.x:.2f}, y={last.y:.2f})")
+            self.add_event(f"?대룞 紐⑺몴 ?ㅼ젙 (x={last.x:.2f}, y={last.y:.2f})")
 
     EVENT_BY_STATUS = {
-        GoalStatus.STATUS_SUCCEEDED: "목표 지점 도착 ✅",
-        GoalStatus.STATUS_CANCELED: "이동 취소됨",
-        GoalStatus.STATUS_ABORTED: "이동 실패 (경로 중단)",
+        GoalStatus.STATUS_SUCCEEDED: "紐⑺몴 吏???꾩갑 ??,
+        GoalStatus.STATUS_CANCELED: "?대룞 痍⑥냼??,
+        GoalStatus.STATUS_ABORTED: "?대룞 ?ㅽ뙣 (寃쎈줈 以묐떒)",
     }
 
     def status_callback(self, msg: GoalStatusArray):
@@ -199,7 +211,7 @@ class WebDashboard(Node):
     def snapshot(self) -> dict:
         with self.lock:
             pose, goal, navigating = self.pose, self.goal, self.navigating
-            wander, event_seq = self.wander_enabled, self.event_seq
+            wander, event_seq, hide_state = self.wander_enabled, self.event_seq, self.hide_state
         return {
             'pose': {'x': pose[0], 'y': pose[1], 'yaw': pose[2]} if pose else None,
             'goal': {'x': goal[0], 'y': goal[1]} if goal and navigating else None,
@@ -209,6 +221,7 @@ class WebDashboard(Node):
             'people': (self.person_count
                        if (time.time() - self.person_stamp) < 2.0 else None),
             'event_seq': event_seq,
+            'hide_state': hide_state,
         }
 
     def events_since(self, last_seq: int) -> list:
@@ -228,7 +241,7 @@ class WebDashboard(Node):
             return CHAT_TIMEOUT_MSG
         if future.exception() is not None:
             self.get_logger().error(f"llm_agent call failed: {future.exception()}")
-            return "LLM 서비스 호출 중 오류가 발생했습니다."
+            return "LLM ?쒕퉬???몄텧 以??ㅻ쪟媛 諛쒖깮?덉뒿?덈떎."
         return future.result().answer
 
 
@@ -277,7 +290,7 @@ def create_app(node: WebDashboard) -> Flask:
         body = request.get_json(silent=True) or {}
         question = str(body.get('question', '')).strip()
         if not question:
-            return jsonify({'answer': '질문이 비어 있습니다.'}), 400
+            return jsonify({'answer': '吏덈Ц??鍮꾩뼱 ?덉뒿?덈떎.'}), 400
         return jsonify({'answer': node.ask(question)})
 
     return app

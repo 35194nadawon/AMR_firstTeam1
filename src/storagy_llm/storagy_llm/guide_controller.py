@@ -3,6 +3,7 @@
 import rclpy
 from rclpy.node import Node
 from std_msgs.msg import Bool, String
+from storagy_interfaces.srv import Emotion
 
 
 class GuideController(Node):
@@ -17,6 +18,7 @@ class GuideController(Node):
         super().__init__('guide_controller')
         self.llm_active_pub = self.create_publisher(Bool, '/llm_active', 10)
         self.event_pub = self.create_publisher(String, '/robot_events', 10)
+        self.emotion_cli = self.create_client(Emotion, '/hide/set_emotion')
         self.create_subscription(
             Bool, '/guide/mission_done', self._on_guide_done, 10)
         self.get_logger().info('guide_controller ready')
@@ -29,6 +31,10 @@ class GuideController(Node):
             return
         self.llm_active_pub.publish(Bool(data=False))
         self._publish_event('Guide arrived at target; waiting for mission completion')
+        if self.emotion_cli.service_is_ready():
+            req = Emotion.Request()
+            req.emotion = 'happy'
+            self.emotion_cli.call_async(req)
         self.get_logger().info('Guide mission_done received; llm_active=false')
 
 
