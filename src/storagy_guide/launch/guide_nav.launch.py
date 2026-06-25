@@ -43,4 +43,11 @@ def generate_launch_description():
                 },
             ],
         ),
+        Node(
+            package='storagy_llm',
+            executable='guide_controller',
+            name='guide_controller',
+            output='screen',
+            parameters=[{'use_sim_time': use_sim_time}],
+        ),
     ])

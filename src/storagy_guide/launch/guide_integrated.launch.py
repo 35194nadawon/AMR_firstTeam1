@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+﻿#!/usr/bin/env python3
 
 import os
 
@@ -27,7 +27,7 @@ def generate_launch_description():
         DeclareLaunchArgument('target_x', default_value='1.0'),
         DeclareLaunchArgument('target_y', default_value='0.0'),
         DeclareLaunchArgument('target_yaw', default_value='0.0'),
-        
+
         # 1. guide_nav_node (FSM Coordinator)
         Node(
             package='storagy_guide',
@@ -45,7 +45,7 @@ def generate_launch_description():
                 },
             ],
         ),
-        
+
         # 2. guide_controller (PD controller / Interceptor)
         Node(
             package='storagy_llm',
