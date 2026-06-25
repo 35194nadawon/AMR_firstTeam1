@@ -45,6 +45,9 @@ CHAIR_BACK_H = 0.38
 CHAIR_LEG_H = 0.43
 CHAIR_GAP = 0.12
 
+# T1 -x면: 진입문(-4.47, 0.12) 쪽 통로 — 의자 2개 배치 안 함
+CHAIR_SKIP_SIDES = {'t1': {'nx'}}
+
 # T2/T3 동쪽 통로를 북↔남으로 배회 (Nav2 /scan 장애물로 회피)
 WALKING_PERSON = {
     'name': 'walking_person',
@@ -127,7 +130,10 @@ def chairs_for_desk(spec: dict) -> list[dict]:
         ('nx', tx - hw - dist, 0.0),
     )
     chairs: list[dict] = []
+    skip = CHAIR_SKIP_SIDES.get(spec['name'], set())
     for prefix, cx, yaw in sides:
+        if prefix in skip:
+            continue
         for i, y_off in enumerate((along, -along), start=1):
             chairs.append({
                 'id': f"{spec['name']}_{prefix}{i}",
