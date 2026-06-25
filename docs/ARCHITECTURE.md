@@ -2,87 +2,79 @@
 
 ## 기본 전략
 
-기존 `storagy` 패키지는 로봇 하드웨어와 Nav2 기준선으로 유지한다. Toy Guide 기능은 새 패키지로 추가하여 실제 로봇 구동 안정성을 보호한다.
+기존 `storagy` 패키지는 로봇 하드웨어와 Nav2 기준선으로 유지한다. Toy Guide 기능은 역할별 패키지로 추가하여 실제 로봇 구동 안정성을 보호한다.
+
+토픽은 안내팀 `/guide/*`, 숨는팀 `/hide/*`, MCU `/mcu/*`, 웹 `/dashboard/*` 기준으로 나눈다.
 
 ## 패키지 설계
 
 ```text
 src/
   storagy/
-  toy_guide_bringup/
-  toy_guide_interfaces/
-  toy_guide_mission/
-  toy_guide_vision/
-  toy_guide_navigation/
-  toy_guide_mcu_bridge/
-  toy_guide_dashboard_bridge/
+  storagy_interfaces/
+  storagy_hide/
+  storagy_llm/
+  storagy_guide/
+  storagy_mcu_bridge/
 ```
 
 ## 패키지별 책임
 
-### `toy_guide_bringup`
+### `storagy`
 
-- 전체 launch 파일 제공
-- 기존 `storagy` bringup 이후 추가 기능 노드 실행
-- 데모 모드별 launch argument 관리
+- 기존 로봇 모델, 지도, Nav2, Cartographer, RViz 기준선
+- 실제 로봇/시뮬레이션에서 검증된 launch와 설정 유지
+- 큰 변경은 최소화
 
-예상 launch:
+### `storagy_interfaces`
 
-- `toy_guide_demo.launch.py`
-- `toy_guide_vision.launch.py`
-- `toy_guide_navigation.launch.py`
-
-### `toy_guide_interfaces`
-
-- 팀 간 topic/msg 계약 고정
+- 팀 간 srv/msg 계약 고정
 - custom message가 필요할 때만 추가
 - 초기에는 표준 메시지(`std_msgs`, `geometry_msgs`, `sensor_msgs`) 우선 사용
 
-### `toy_guide_mission`
+### `storagy_hide`
 
-- 임무 상태 머신 관리
-- 대기, 안내 시작, 안내 중, Freeze, Resume, 복귀, 도킹 완료 상태 관리
-- LLM/앱/웹 명령을 ROS 명령으로 변환
+- `/hide/*` 네임스페이스 담당
+- 위장 대기, 기상, Freeze, 복귀, 도킹 상태 머신
+- 사람 감지, 시야각 120도 위험 구역, AprilTag 도킹
+- 안내팀의 `/guide/mission_done`을 받아 복귀 시작
 
-### `toy_guide_vision`
+### `storagy_guide`
 
-- YOLOv8 사람 감지
-- YOLOv8 점자 블록 감지
-- AprilTag pose 추정
-- 감지 결과를 ROS 토픽으로 발행
+- `/guide/*` 네임스페이스 담당
+- 점자 블록 인식, 경로 보정, 안내 상태 관리
+- 목적지 도착 처리 및 `/guide/mission_done` 발행
+- 필요 시 `storagy_llm`의 명령 결과를 주행 목표로 변환
 
-### `toy_guide_navigation`
+### `storagy_llm`
 
-- Nav2 goal 발행
-- Freeze/Resume 안전 제어
-- 사람 시야각 120도 위험 구역 생성
-- Costmap Filter 적용 후보 검증
-- 대기석 복귀와 도킹 접근 경로 생성
+- LLM agent, 웹 대시보드, 음성/텍스트 명령 처리
+- `/guide/command`, `/hide/takeover_start` 등 상위 이벤트 발행
+- 교수님 실습 API가 포함될 수 있으므로 별도 검증 후 통합
 
-### `toy_guide_mcu_bridge`
+### `storagy_mcu_bridge`
 
+- `/mcu/*` 네임스페이스 담당
 - MCU serial 통신
 - IMU pitch/accel 수신
 - OLED/LED 상태 출력
 - 모터 보정 또는 제동 명령 전달
 
-### `toy_guide_dashboard_bridge`
-
-- ROS 상태를 웹 대시보드로 전달
-- 웹/앱 명령을 ROS 명령으로 전달
-- 데모용 경고, 심박수, 무전 메시지 표시
-
 ## 상태 머신 초안
 
 ```text
-IDLE_DOCKED
+/hide/state: IDLE_DOCKED
   -> WAKE_UP
-  -> MOVE_TO_ENTRANCE
-  -> GUIDE_READY
+  -> GUIDE_HANDOFF
+
+/guide/state: GUIDE_READY
   -> GUIDING
-  -> FREEZE
+  -> PAUSED
   -> GUIDING
   -> ARRIVED
+  -> DONE
+
+/hide/state:
   -> RETURN_TO_DOCK
   -> DOCKING
   -> IDLE_DOCKED
