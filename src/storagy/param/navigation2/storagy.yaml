@@ -201,8 +201,8 @@ global_costmap:
       footprint_padding: 0.10000000149011612
       global_frame: map
       inflation_layer:
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.35
+        cost_scaling_factor: 2.5
+        inflation_radius: 1.5
         plugin: nav2_costmap_2d::InflationLayer
       obstacle_layer:
         enabled: true
@@ -213,8 +213,8 @@ global_costmap:
           data_type: LaserScan
           marking: true
           max_obstacle_height: 2.0
-          obstacle_max_range: 2.5
-          obstacle_min_range: 0.20
+          obstacle_max_range: 3.0
+          obstacle_min_range: 0.0
           raytrace_max_range: 20.0
           raytrace_min_range: 0.0
           topic: /scan
@@ -240,8 +240,8 @@ local_costmap:
       global_frame: map
       height: 3
       inflation_layer:
-        cost_scaling_factor: 3.0
-        inflation_radius: 0.35
+        cost_scaling_factor: 2.5
+        inflation_radius: 1.5
         plugin: nav2_costmap_2d::InflationLayer
       obstacle_layer:
         enabled: true
@@ -252,8 +252,8 @@ local_costmap:
           data_type: LaserScan
           marking: true
           max_obstacle_height: 2.0
-          obstacle_max_range: 2.5
-          obstacle_min_range: 0.20
+          obstacle_max_range: 3.0
+          obstacle_min_range: 0.0
           raytrace_max_range: 20.0
           raytrace_min_range: 0.0
           topic: /scan
