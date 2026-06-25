@@ -5,8 +5,8 @@
 #
 #   docker compose exec storagy-sim rebuild_ws.sh
 #
-# Pull/merge로 layout.json이 갱신됐으면 rebuild 시 Nav2 PGM·points·대시보드 PNG를
-# layout 기준으로 자동 동기화한 뒤 colcon build 합니다 (SDF/layout.json은 유지).
+# Pull/merge로 layout.json이 갱신됐으면 rebuild 시 Gazebo SDF + Nav2 PGM + points 를
+# layout 기준으로 자동 동기화한 뒤 colcon build 합니다.
 #
 # then restart the simulation (close the sim terminal in the noVNC desktop
 # and run run_sim.sh again, or `docker compose restart`).
@@ -16,14 +16,12 @@ WS=/opt/storagy_sim_origin_ws
 source /opt/ros/humble/setup.bash
 cd "${WS}"
 
-# Pull/merge로 받은 layout.json → Nav2 PGM·points·대시보드 PNG 동기화
-GEN="${WS}/tools/generate_2026_amr_world.py"
-LAYOUT="${WS}/src/storagy/worlds/2026_amr_layout.json"
-if [ -f "${GEN}" ] && [ -f "${LAYOUT}" ]; then
-    echo "[rebuild_ws] syncing Nav2 map from ${LAYOUT}..."
-    python3 "${GEN}" --from-layout
-elif [ -f "${LAYOUT}" ] && [ ! -f "${GEN}" ]; then
-    echo "[rebuild_ws] WARN: ${GEN} not found — Nav2 map not synced"
+# Nav2 PGM(1206_sim_1.pgm)은 검증된 버전 유지 — rebuild 시 맵 재생성 안 함.
+# layout/SDF 동기화가 필요하면 수동: python3 tools/generate_2026_amr_world.py --sync-gazebo
+DASH="${WS}/tools/generate_dashboard_map.py"
+if [ -f "${DASH}" ]; then
+    echo "[rebuild_ws] refreshing dashboard map PNG (Nav2 PGM unchanged)..."
+    python3 "${DASH}" || true
 fi
 
 # storagy_llm's setup.py installs this file; recreate the placeholder if the

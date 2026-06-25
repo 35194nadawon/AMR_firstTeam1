@@ -20,7 +20,6 @@ const ctx = canvas.getContext('2d');
 const poseWaiting = document.getElementById('pose-waiting');
 const connBadge = document.getElementById('conn-badge');
 const navBadge = document.getElementById('nav-badge');
-const wanderBadge = document.getElementById('wander-badge');
 const cameraWrap = document.getElementById('camera-wrap');
 const peopleBadge = document.getElementById('people-badge');
 const hideBadge = document.getElementById('hide-badge');
@@ -30,7 +29,7 @@ const chatForm = document.getElementById('chat-form');
 const chatInput = document.getElementById('chat-input');
 const chatSend = document.getElementById('chat-send');
 
-let state = { pose: null, goal: null, navigating: false };
+let state = { pose: null, goal: null, path: [], navigating: false };
 
 /* ---------- coordinate transform ---------- */
 function worldToCanvas(x, y) {
@@ -54,26 +53,45 @@ function syncCanvasSize() {
   draw();
 }
 
-function drawGoal(x, y) {
+function drawPath(points) {
+  if (!points || points.length < 2) return;
+  const s = canvas.width / 858;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(59, 130, 246, 0.85)';
+  ctx.lineWidth = 4 * s;
+  ctx.lineJoin = 'round';
+  ctx.lineCap = 'round';
+  ctx.beginPath();
+  const [x0, y0] = worldToCanvas(points[0].x, points[0].y);
+  ctx.moveTo(x0, y0);
+  for (let i = 1; i < points.length; i++) {
+    const [x, y] = worldToCanvas(points[i].x, points[i].y);
+    ctx.lineTo(x, y);
+  }
+  ctx.stroke();
+  ctx.restore();
+}
+
+function drawGoal(x, y, pending) {
   const [cx, cy] = worldToCanvas(x, y);
   const s = canvas.width / 858;
   ctx.save();
   ctx.translate(cx, cy);
   // pin: pole + flag
-  ctx.strokeStyle = '#b85c2e';
+  ctx.strokeStyle = pending ? '#94a3b8' : '#b85c2e';
   ctx.lineWidth = 3 * s;
   ctx.beginPath();
   ctx.moveTo(0, 0);
   ctx.lineTo(0, -26 * s);
   ctx.stroke();
-  ctx.fillStyle = '#d97742';
+  ctx.fillStyle = pending ? '#94a3b8' : '#d97742';
   ctx.beginPath();
   ctx.moveTo(0, -26 * s);
   ctx.lineTo(18 * s, -20 * s);
   ctx.lineTo(0, -14 * s);
   ctx.closePath();
   ctx.fill();
-  ctx.fillStyle = 'rgba(184, 92, 46, 0.35)';
+  ctx.fillStyle = pending ? 'rgba(148, 163, 184, 0.35)' : 'rgba(184, 92, 46, 0.35)';
   ctx.beginPath();
   ctx.ellipse(0, 0, 7 * s, 4 * s, 0, 0, Math.PI * 2);
   ctx.fill();
@@ -113,7 +131,11 @@ function drawRobot(x, y, yaw) {
 
 function draw() {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
-  if (state.goal) drawGoal(state.goal.x, state.goal.y);
+  if (state.path && state.path.length) drawPath(state.path);
+  if (state.goal) {
+    const pending = !state.navigating;
+    drawGoal(state.goal.x, state.goal.y, pending);
+  }
   if (state.pose) drawRobot(state.pose.x, state.pose.y, state.pose.yaw);
   poseWaiting.classList.toggle('hidden', !!state.pose);
 }
@@ -140,11 +162,6 @@ function setPeople(count) {
     peopleBadge.className = 'badge idle';
     peopleBadge.textContent = '👤 사람 없음';
   }
-}
-
-function setWander(enabled) {
-  wanderBadge.className = 'badge ' + (enabled ? 'on' : 'idle');
-  wanderBadge.innerHTML = '<span class="dot"></span>' + (enabled ? '랜덤 이동 중' : '랜덤 꺼짐');
 }
 
 function setHideState(hideState) {
@@ -206,7 +223,6 @@ function connectStream() {
       return;
     }
     setNav(state.navigating);
-    setWander(state.wander);
     setPeople(state.people);
     setHideState(state.hide_state);
     cameraWrap.classList.toggle('no-signal', !state.camera);

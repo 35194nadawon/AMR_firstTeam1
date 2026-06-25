@@ -1,4 +1,5 @@
 import rclpy
+from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 from storagy_llm.robot_tools import ToolSet, create_tools
 from storagy_interfaces.srv import Agent
@@ -147,9 +148,13 @@ class AgentLLM(Node):
 def main(args=None):
     rclpy.init(args=args)
     agent = AgentLLM()
+    executor = MultiThreadedExecutor()
+    executor.add_node(agent)
+    executor.add_node(agent.tool_set)
     try:
-        rclpy.spin(agent) 
+        executor.spin()
     finally:
+        agent.tool_set.destroy_node()
         agent.destroy_node()
         rclpy.shutdown()
 

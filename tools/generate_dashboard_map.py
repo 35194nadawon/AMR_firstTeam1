@@ -14,6 +14,10 @@ import cv2
 import numpy as np
 
 PKG_ROOT = Path(__file__).resolve().parents[1]
+TOOLS_DIR = Path(__file__).resolve().parent
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
+
 MAP_PGM = PKG_ROOT / 'src/storagy/map/1206_sim_1.pgm'
 LAYOUT_JSON = PKG_ROOT / 'src/storagy/worlds/2026_amr_layout.json'
 OUT_PNG = PKG_ROOT / 'src/storagy_llm/web/1206_top.png'
@@ -37,7 +41,6 @@ C_CHAIR = (66, 112, 58)        # green-ish chairs
 C_DOOR = (37, 191, 64)         # green door frame
 C_HIDE = (54, 54, 58)          # hideout cabinet
 C_ORIGIN = (81, 154, 78)       # spawn zone
-C_PATH = (66, 119, 217)        # walking person corridor
 
 
 def world_to_img(x: float, y: float) -> tuple[int, int]:
@@ -116,11 +119,6 @@ def generate(layout: dict) -> np.ndarray:
     ox, oy = origin['x'], origin['y']
     cv2.circle(img, world_to_img(ox, oy), 10, C_ORIGIN, 2, cv2.LINE_AA)
     draw_label(img, 'SPAWN', ox, oy - 0.35)
-
-    # 배회 경로 (동쪽 통로)
-    path_pts = [world_to_img(1.20, y) for y in (-2.20, 2.20)]
-    cv2.line(img, path_pts[0], path_pts[1], C_PATH, 3, cv2.LINE_AA)
-    draw_label(img, 'WALK', 1.55, 0.0)
 
     return img
 

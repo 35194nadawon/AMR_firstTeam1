@@ -16,6 +16,10 @@ from rcl_interfaces.msg import Parameter, ParameterValue
 from langchain_core.tools import StructuredTool
 from typing import List
 
+GUIDE_STATES = frozenset({'GUIDE', 'WAKE'})
+BLOCKED_NAV_STATES = frozenset({'RETURN', 'DOCK'})
+
+
 def create_tools(tool_set) -> List[StructuredTool]:
     tool_specs = [
         {
@@ -29,13 +33,24 @@ def create_tools(tool_set) -> List[StructuredTool]:
             "func": lambda: ", ".join(tool_set.list_locations())
         },
         {
+            "name": "go_to_location",
+            "description": (
+                "사용자가 'T4로 가줘', 'table2로 이동해' 등 목적지까지 바로 가달라고 할 때 사용합니다. "
+                "FREEZE면 자동 기상 후 Nav2 주행을 시작합니다."
+            ),
+            "func": lambda place: tool_set.go_to_location(place)
+        },
+        {
             "name": "move_to_location",
-            "description": "사용자가 특정 장소로 이동하라고 말했을 때 사용합니다.",
+            "description": (
+                "목적지만 설정하고 출발은 나중에 할 때 사용합니다. "
+                "이후 사용자가 '출발', '가자'라고 하면 start_guide를 호출하세요."
+            ),
             "func": lambda place: tool_set.move_to_location(place)
         },
         {
             "name": "start_guide",
-            "description": "사용자가 준비 완료되었거나 출발(가자)하라고 말했을 때 안내 주행을 시작합니다.",
+            "description": "move_to_location으로 목적지를 설정한 뒤 사용자가 '출발', '가자'라고 할 때 Nav2 주행을 시작합니다.",
             "func": lambda: tool_set.start_guide()
         },
         {
@@ -90,8 +105,8 @@ def create_tools(tool_set) -> List[StructuredTool]:
         },
         {
             "name": "finish_mission",
-            "description": "안내 임무가 끝났을 때('미션 끝', '서비스 완료', '은폐처로 돌아가') 복귀를 시작합니다.",
-            "func": lambda: tool_set.finish_mission()
+            "description": "complete_mission과 동일. '미션 끝', '서비스 완료' 시 복귀를 시작합니다.",
+            "func": lambda: tool_set.complete_mission()
         },
         {
             "name": "finish_docking",
@@ -137,6 +152,8 @@ class ToolSet(Node):
         )
         self.wander_pub = self.create_publisher(Bool, '/wander_enabled', wander_qos)
         self.event_pub = self.create_publisher(String, '/robot_events', 10)
+        self.nav_goal_pub = self.create_publisher(
+            PoseStamped, '/dashboard/nav_goal', wander_qos)
 
         # Hide FSM (P1) — LLM → /hide/* topic pub
         self.hide_state = 'UNKNOWN'
@@ -148,9 +165,6 @@ class ToolSet(Node):
 
         self.goal_handle = None
         self.pending_place = None  # move_to_location → start_guide 2단계 이동
-        # R1 / R4 integration with hide team
-        self.takeover_pub = self.create_publisher(Bool, '/hide/takeover_start', 10)
-        self.mission_done_pub = self.create_publisher(Bool, '/hide/mission_done', 10)
         self.emotion_cli = self.create_client(Emotion, '/hide/set_emotion')
         self.param_client = self.create_client(SetParameters, '/guide_nav_node/set_parameters')
         self.person_arrived_pub = self.create_publisher(Bool, '/guide/person_arrived', 10)
@@ -166,27 +180,62 @@ class ToolSet(Node):
         msg.data = text
         self.event_pub.publish(msg)
 
+    def _publish_dashboard_goal(self, x: float, y: float):
+        msg = PoseStamped()
+        msg.header.frame_id = self.frame_id
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.pose.position.x = float(x)
+        msg.pose.position.y = float(y)
+        self.nav_goal_pub.publish(msg)
+
+    def _clear_dashboard_goal(self):
+        msg = PoseStamped()
+        msg.header.frame_id = ''
+        self.nav_goal_pub.publish(msg)
+
     def _on_hide_state(self, msg: String):
-        self.hide_state = msg.data
+        self.hide_state = msg.data.strip()
+
+    def _wait_for_state(self, allowed: frozenset, timeout: float = 4.0) -> bool:
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if self.hide_state in allowed:
+                return True
+            time.sleep(0.05)
+        return False
+
+    def _ensure_guide(self, timeout: float = 4.0) -> str | None:
+        """FREEZE/UNKNOWN이면 기상 후 GUIDE 전환까지 대기."""
+        if self.hide_state in BLOCKED_NAV_STATES:
+            return (f"[HIDE] {self.hide_state} 상태 — 복귀·도킹 중이라 "
+                    "안내 이동을 시작할 수 없습니다.")
+        if self.hide_state in GUIDE_STATES:
+            return None
+        if self.hide_state in ('FREEZE', 'UNKNOWN'):
+            self.hide_takeover_pub.publish(Bool(data=True))
+            self.publish_event("임무 교대(기상) 신호 발행")
+        if self._wait_for_state(GUIDE_STATES, timeout):
+            return None
+        return "[HIDE] GUIDE 전환 대기 시간 초과 — 잠시 후 다시 시도해 주세요."
 
     def _require_guide(self) -> str | None:
-        if self.hide_state == 'FREEZE':
-            return ("[HIDE] FREEZE(위장) 상태라 이동할 수 없습니다. "
-                    "먼저 start_takeover로 기상/임무 교대를 해 주세요.")
-        return None
+        if self.hide_state in BLOCKED_NAV_STATES:
+            return (f"[HIDE] {self.hide_state} 상태라 이동할 수 없습니다.")
+        if self.hide_state in GUIDE_STATES:
+            return None
+        return self._ensure_guide()
 
     def get_hide_state(self) -> str:
         return f"[HIDE] 현재 상태: {self.hide_state}"
 
     def start_takeover(self) -> str:
+        if self.hide_state in GUIDE_STATES:
+            return f"[HIDE] 이미 {self.hide_state} 상태입니다."
         self.hide_takeover_pub.publish(Bool(data=True))
         self.publish_event("임무 교대(기상) 신호 발행")
-        return "[HIDE] takeover_start 발행 — FREEZE→GUIDE 전이 요청"
-
-    def finish_mission(self) -> str:
-        self.hide_mission_done_pub.publish(Bool(data=True))
-        self.publish_event("미션 완료 신호 발행")
-        return "[HIDE] mission_done 발행 — 복귀(DOCK) 전이 요청"
+        if self._wait_for_state(GUIDE_STATES, 4.0):
+            return "[HIDE] FREEZE→GUIDE 전이 완료"
+        return "[HIDE] takeover_start 발행 — GUIDE 전환 대기 중"
 
     def finish_docking(self) -> str:
         self.hide_dock_done_pub.publish(Bool(data=True))
@@ -208,13 +257,17 @@ class ToolSet(Node):
         self.publish_event("랜덤 이동 정지")
         return "[WANDER] 랜덤 이동을 정지했습니다."
 
-    def _stop_all_motion(self):
-        """Stop wandering and any active navigation so teleop has exclusive cmd_vel."""
+    def _stop_all_motion(self, *, wait_nav_cancel: bool = False):
+        """Stop wandering and any active LLM navigation goal."""
         if self.wander_enabled:
             self.set_wander(False)
         if self.goal_handle is not None:
             try:
-                self.goal_handle.cancel_goal_async()
+                cancel_future = self.goal_handle.cancel_goal_async()
+                if wait_nav_cancel:
+                    deadline = time.time() + 3.0
+                    while time.time() < deadline and not cancel_future.done():
+                        time.sleep(0.05)
             except Exception as e:
                 self.get_logger().warn(f"[TELEOP] Failed to cancel LLM goal: {e}")
             self.goal_handle = None
@@ -224,7 +277,8 @@ class ToolSet(Node):
         msg.data = "stop"
         self.guide_command_pub.publish(msg)
         self.cmd_pub.publish(Twist())
-        time.sleep(0.5)  # give Nav2 a moment to release cmd_vel
+        if wait_nav_cancel:
+            time.sleep(0.6)
 
     @staticmethod
     def _normalize_angle(a: float) -> float:
@@ -405,11 +459,6 @@ class ToolSet(Node):
 
     def navigate_to_pose(self, x, y, qz=0.0, qw=1.0, done_callback=None):
         self.publish_llm_active(True)
-        # WAKE trigger to wake up the hiding robot
-        wake_msg = Bool()
-        wake_msg.data = True
-        self.takeover_pub.publish(wake_msg)
-        self.publish_event("안내 시작: 숨는팀 WAKE 트리거 전송")
         goal = NavigateToPose.Goal()
         ps = PoseStamped()
         ps.header.frame_id = self.frame_id
@@ -462,8 +511,36 @@ class ToolSet(Node):
 
         self._goal_future.add_done_callback(goal_response_callback)
 
+    def _sync_guide_params(self, x: float, y: float, yaw: float) -> None:
+        if not self.param_client.service_is_ready():
+            return
+        req = SetParameters.Request()
+        req.parameters = [
+            Parameter(name='target_x', value=ParameterValue(type=3, double_value=float(x))),
+            Parameter(name='target_y', value=ParameterValue(type=3, double_value=float(y))),
+            Parameter(name='target_yaw', value=ParameterValue(type=3, double_value=float(yaw))),
+        ]
+        self.param_client.call_async(req)
+
+    def go_to_location(self, place: str) -> str:
+        blocked = self._ensure_guide()
+        if blocked:
+            return blocked
+        if place not in self.places:
+            return f"[ERR] Unknown place: {place}"
+
+        self.pending_place = None
+        x, y, qz, qw = self.places[place]
+        yaw = 2.0 * math.atan2(qz, qw)
+        self._sync_guide_params(x, y, yaw)
+        self.publish_event(
+            f"안내 출발 — {place}(x={x:.2f}, y={y:.2f})로 Nav2 주행 시작")
+        self._publish_dashboard_goal(x, y)
+        self.navigate_to_pose(x, y, qz, qw)
+        return f"[NAV] {place}(으)로 안내 주행을 시작했습니다."
+
     def start_guide(self) -> str:
-        blocked = self._require_guide()
+        blocked = self._ensure_guide()
         if blocked:
             return blocked
         if not self.pending_place:
@@ -474,11 +551,12 @@ class ToolSet(Node):
         x, y, qz, qw = self.places[place]
         self.pending_place = None
         self.publish_event(f"출발 지시 — {place}(x={x:.2f}, y={y:.2f})로 Nav2 주행 시작")
+        self._publish_dashboard_goal(x, y)
         self.navigate_to_pose(x, y, qz, qw)
         return f"[GUIDE] {place}(으)로 안내 주행을 시작합니다."
 
     def move_to_location(self, place: str):
-        blocked = self._require_guide()
+        blocked = self._ensure_guide()
         if blocked:
             return blocked
         if place not in self.places:
@@ -489,37 +567,15 @@ class ToolSet(Node):
         # Calculate yaw from quaternion (qz, qw)
         yaw = 2.0 * math.atan2(qz, qw)
 
-        # guide_nav_node가 떠 있으면 파라미터도 동기화 (full_bringup 미포함 시 무시)
-        if not self.param_client.service_is_ready():
-            self.get_logger().debug('guide_nav_node not running; pending_place only')
-        req = SetParameters.Request()
-        
-        px = Parameter()
-        px.name = 'target_x'
-        px.value.type = 3 # ParameterType.PARAMETER_DOUBLE
-        px.value.double_value = float(x)
-        
-        py = Parameter()
-        py.name = 'target_y'
-        py.value.type = 3 # ParameterType.PARAMETER_DOUBLE
-        py.value.double_value = float(y)
-        
-        pyaw = Parameter()
-        pyaw.name = 'target_yaw'
-        pyaw.value.type = 3 # ParameterType.PARAMETER_DOUBLE
-        pyaw.value.double_value = float(yaw)
-        
-        req.parameters = [px, py, pyaw]
-        
+        self._sync_guide_params(x, y, yaw)
         self.publish_event(
             f"'{place}' (x={x:.2f}, y={y:.2f}, yaw={yaw:.2f})로 목적지 설정 — 출발 대기")
-        if self.param_client.service_is_ready():
-            self.param_client.call_async(req)
-        
+        self._publish_dashboard_goal(x, y)
         return f"[NAV] 목적지가 {place}(으)로 설정되었습니다. 준비 완료되면 출발하라고 말씀해주세요."
 
     def cancel_navigation(self) -> str:
         self.pending_place = None
+        self._clear_dashboard_goal()
         stopped = []
         if self.goal_handle is not None:
             try:
@@ -546,19 +602,20 @@ class ToolSet(Node):
         return f"[NAV] {', '.join(stopped)}을(를) 중지하고 로봇을 정지시켰습니다."
 
     def complete_mission(self) -> str:
-        # 1. Stop all navigation/wandering to yield control
-        self._stop_all_motion()
-        
-        # 2. Publish mission_done to return control to hide team
-        msg = Bool()
-        msg.data = True
-        self.mission_done_pub.publish(msg)
-        
-        # 3. Reset emotion to basic
+        if self.hide_state in BLOCKED_NAV_STATES:
+            return f"[HIDE] 이미 {self.hide_state} 상태입니다 — 복귀가 진행 중입니다."
+
+        self._stop_all_motion(wait_nav_cancel=True)
+        self.pending_place = None
+        self._clear_dashboard_goal()
+
+        self.hide_mission_done_pub.publish(Bool(data=True))
+        self.publish_event("미션 완료 신호 발행 (/hide/mission_done)")
+
         if self.emotion_cli.service_is_ready():
             req = Emotion.Request()
             req.emotion = "basic"
             self.emotion_cli.call_async(req)
-            
-        self.publish_event("안내 서비스 종료. 제어권 숨는팀 이양")
-        return "[MISSION] 서비스 완료 처리를 마쳤습니다. 로봇이 복귀 모드로 전환됩니다."
+
+        return ("[MISSION] 서비스를 종료했습니다. "
+                "숨는팀이 hideout으로 복귀합니다 (return_arrived → dock_done).")

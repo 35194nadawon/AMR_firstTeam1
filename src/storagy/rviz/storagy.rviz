@@ -260,7 +260,7 @@ Visualization Manager:
           Class: rviz_default_plugins/Map
           Color Scheme: map
           Draw Behind: false
-          Enabled: true
+          Enabled: false
           Name: SLAM Map
           Topic:
             Depth: 5
@@ -394,7 +394,7 @@ Visualization Manager:
           Class: rviz_default_plugins/Map
           Color Scheme: costmap
           Draw Behind: false
-          Enabled: true
+          Enabled: false
           Name: Downsampled Costmap
           Topic:
             Depth: 1

@@ -5,6 +5,8 @@
 래스터화해 발행한다. Nav2 의 KeepoutFilter 가 이 토픽을 mask 로 구독하면 로봇이
 "인간 시야"를 가상의 벽으로 인식해 구석 사각지대로 회피한다.
 
+기본값 active_only_in_freeze=true — GUIDE/RETURN/DOCK 주행 중에는 마스크를 비운다.
+
 토픽 계약:
   - 구독: /hide/keepout_zones(PolygonStamped)
   - 발행: /hide/dynamic_keepout_mask(OccupancyGrid)
@@ -16,6 +18,8 @@ import rclpy
 from rclpy.node import Node
 from geometry_msgs.msg import PolygonStamped
 from nav_msgs.msg import OccupancyGrid
+from std_msgs.msg import String
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 try:
     import cv2
@@ -32,23 +36,59 @@ class DynamicCostmap(Node):
         self.declare_parameter('frame_id', 'base_link')
         self.declare_parameter('padding_m', 0.1)
         self.declare_parameter('occupied_value', 100)
+        self.declare_parameter('active_only_in_freeze', True)
         self.resolution = self.get_parameter('resolution_m').value
         self.frame_id = self.get_parameter('frame_id').value
         self.padding = self.get_parameter('padding_m').value
         self.occupied = int(self.get_parameter('occupied_value').value)
+        self.active_only_in_freeze = self.get_parameter('active_only_in_freeze').value
+        self.hide_state = 'FREEZE'
 
         self.mask_pub = self.create_publisher(
             OccupancyGrid, '/hide/dynamic_keepout_mask', 1)
         self.create_subscription(
             PolygonStamped, '/hide/keepout_zones', self._on_zones, 10)
+        state_qos = QoSProfile(
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self.create_subscription(String, '/hide/state', self._on_hide_state, state_qos)
 
         if not _HAS_CV:
             self.get_logger().warn('cv2 미설치 → 폴리곤 바운딩박스 전체를 채우는 폴백 사용')
-        self.get_logger().info('P3 DynamicCostmap 시작')
+        self.get_logger().info(
+            f'P3 DynamicCostmap 시작 (active_only_in_freeze={self.active_only_in_freeze})')
+
+    def _on_hide_state(self, msg: String):
+        prev = self.hide_state
+        self.hide_state = msg.data
+        if self.active_only_in_freeze and prev == 'FREEZE' and msg.data != 'FREEZE':
+            self._publish_clear_mask(self.frame_id)
+
+    def _mask_enabled(self) -> bool:
+        if not self.active_only_in_freeze:
+            return True
+        return self.hide_state == 'FREEZE'
+
+    def _publish_clear_mask(self, frame_id: str):
+        grid = OccupancyGrid()
+        grid.header.stamp = self.get_clock().now().to_msg()
+        grid.header.frame_id = frame_id or self.frame_id
+        grid.info.resolution = self.resolution
+        grid.info.width = 1
+        grid.info.height = 1
+        grid.info.origin.orientation.w = 1.0
+        grid.data = [0]
+        self.mask_pub.publish(grid)
 
     def _on_zones(self, msg: PolygonStamped):
+        if not self._mask_enabled():
+            return
         pts = [(p.x, p.y) for p in msg.polygon.points]
         if len(pts) < 3:
+            self._publish_clear_mask(msg.header.frame_id or self.frame_id)
             return
 
         xs = [p[0] for p in pts]

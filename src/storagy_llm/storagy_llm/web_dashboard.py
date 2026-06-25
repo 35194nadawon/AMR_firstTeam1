@@ -17,13 +17,14 @@ import tf2_ros
 from rclpy.duration import Duration
 from rclpy.executors import SingleThreadedExecutor
 from rclpy.node import Node
-from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rclpy.time import Time
 
 import cv2
 from cv_bridge import CvBridge
 
 from action_msgs.msg import GoalStatus, GoalStatusArray
+from geometry_msgs.msg import PoseStamped
 from nav_msgs.msg import Path as NavPath
 from sensor_msgs.msg import Image
 from std_msgs.msg import Bool, Int32, String
@@ -55,8 +56,8 @@ class WebDashboard(Node):
         self.lock = threading.Lock()
         self.pose = None          # (x, y, yaw) in map frame
         self.goal = None          # (x, y) in map frame
+        self.path = []            # [{'x', 'y'}, ...] Nav2 global plan
         self.navigating = False
-        self.wander_enabled = False
         self.events = []          # ring buffer of {'id', 't', 'text'}
         self.event_seq = 0
         self.goal_statuses = {}   # goal uuid bytes -> last seen status
@@ -71,8 +72,23 @@ class WebDashboard(Node):
         self.tf_buffer = tf2_ros.Buffer(cache_time=Duration(seconds=10.0))
         self.tf_listener = tf2_ros.TransformListener(self.tf_buffer, self)
 
+        plan_qos = QoSProfile(
+            depth=10,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+        )
         self.plan_sub = self.create_subscription(
-            NavPath, '/plan', self.plan_callback, 10)
+            NavPath, '/plan', self.plan_callback, plan_qos)
+        self.plan_smooth_sub = self.create_subscription(
+            NavPath, '/plan_smoothed', self.plan_callback, plan_qos)
+
+        nav_goal_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+        )
+        self.nav_goal_sub = self.create_subscription(
+            PoseStamped, '/dashboard/nav_goal', self.nav_goal_callback, nav_goal_qos)
 
         # Nav2 action status topic uses transient-local reliable QoS
         status_qos = QoSProfile(
@@ -87,15 +103,11 @@ class WebDashboard(Node):
         self.event_sub = self.create_subscription(
             String, '/robot_events', self.event_callback, 10)
 
-        wander_qos = QoSProfile(
+        camera_qos = QoSProfile(
             depth=1,
             reliability=ReliabilityPolicy.RELIABLE,
-            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST,
         )
-        self.wander_sub = self.create_subscription(
-            Bool, '/wander_enabled', self.wander_callback, wander_qos)
-
-        camera_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.camera_sub = self.create_subscription(
             Image, '/yolo/detected_image', self.camera_callback, camera_qos)
 
@@ -107,8 +119,17 @@ class WebDashboard(Node):
         
         # R1 integration: subscribe to hide team state
         self.hide_state = 'FREEZE'
+        hide_qos = QoSProfile(
+            depth=10,
+            reliability=ReliabilityPolicy.RELIABLE,
+            durability=DurabilityPolicy.VOLATILE,
+        )
         self.hide_state_sub = self.create_subscription(
-            String, '/hide/state', self.hide_state_callback, 10)
+            String, '/hide/state', self.hide_state_callback, hide_qos)
+        self.return_arrived_sub = self.create_subscription(
+            Bool, '/hide/return_arrived', self.return_arrived_callback, hide_qos)
+        self.dock_done_sub = self.create_subscription(
+            Bool, '/hide/dock_done', self.dock_done_callback, hide_qos)
             
         self.get_logger().info("Web dashboard node initialized.")
 
@@ -135,9 +156,21 @@ class WebDashboard(Node):
         if log_change:
             self.add_event(f"숨는팀 상태 변경: {new_state}")
 
-    def wander_callback(self, msg: Bool):
+    def return_arrived_callback(self, msg: Bool):
+        if msg.data:
+            self.add_event("hideout 도착 (/hide/return_arrived)")
+
+    def dock_done_callback(self, msg: Bool):
+        if msg.data:
+            self.add_event("도킹 완료 (/hide/dock_done)")
+
+    def nav_goal_callback(self, msg: PoseStamped):
         with self.lock:
-            self.wander_enabled = msg.data
+            if not msg.header.frame_id:
+                self.goal = None
+                self.path = []
+                return
+            self.goal = (msg.pose.position.x, msg.pose.position.y)
 
     def person_callback(self, msg: Int32):
         self.person_count = msg.data
@@ -172,12 +205,24 @@ class WebDashboard(Node):
     def plan_callback(self, msg: NavPath):
         if not msg.poses:
             return
+        with self.lock:
+            show_path = (
+                self.navigating
+                or self.hide_state in ('RETURN', 'DOCK')
+            )
+            if not show_path:
+                return
+        points = [
+            {'x': p.pose.position.x, 'y': p.pose.position.y}
+            for p in msg.poses
+        ]
         last = msg.poses[-1].pose.position
         with self.lock:
-            is_new_goal = self.goal is None
+            had_path = bool(self.path)
+            self.path = points
             self.goal = (last.x, last.y)
-        if is_new_goal:
-            self.add_event(f"이동 목표 설정 (x={last.x:.2f}, y={last.y:.2f})")
+        if not had_path:
+            self.add_event(f"경로 계획 (x={last.x:.2f}, y={last.y:.2f})")
 
     EVENT_BY_STATUS = {
         GoalStatus.STATUS_SUCCEEDED: "목표 지점 도착 ✅",
@@ -187,17 +232,18 @@ class WebDashboard(Node):
 
     def status_callback(self, msg: GoalStatusArray):
         new_events = []
+        clear_goal_path = False
         for s in msg.status_list:
             gid = bytes(s.goal_info.goal_id.uuid)
             prev = self.goal_statuses.get(gid)
             if prev == s.status:
                 continue
             self.goal_statuses[gid] = s.status
-            # Skip the first (latched) array: it replays past goals
             if not self.status_initialized:
                 continue
             if s.status in self.EVENT_BY_STATUS:
                 new_events.append(self.EVENT_BY_STATUS[s.status])
+                clear_goal_path = True
         self.status_initialized = True
         if len(self.goal_statuses) > 200:
             self.goal_statuses.clear()
@@ -208,20 +254,25 @@ class WebDashboard(Node):
         )
         with self.lock:
             self.navigating = active
-            if not active:
+            if not active and self.hide_state not in ('RETURN', 'DOCK'):
+                self.path = []
+            if clear_goal_path:
                 self.goal = None
+                self.path = []
         for text in new_events:
             self.add_event(text)
 
     def snapshot(self) -> dict:
         with self.lock:
             pose, goal, navigating = self.pose, self.goal, self.navigating
-            wander, event_seq, hide_state = self.wander_enabled, self.event_seq, self.hide_state
+            path = list(self.path)
+            event_seq, hide_state = self.event_seq, self.hide_state
+        show_path = navigating or hide_state in ('RETURN', 'DOCK')
         return {
             'pose': {'x': pose[0], 'y': pose[1], 'yaw': pose[2]} if pose else None,
-            'goal': {'x': goal[0], 'y': goal[1]} if goal and navigating else None,
+            'goal': {'x': goal[0], 'y': goal[1]} if goal else None,
+            'path': path if show_path and path else [],
             'navigating': navigating,
-            'wander': wander,
             'camera': (time.time() - self.camera_stamp) < 2.0,
             'people': (self.person_count
                        if (time.time() - self.person_stamp) < 2.0 else None),

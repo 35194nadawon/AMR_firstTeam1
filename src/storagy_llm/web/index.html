@@ -26,7 +26,6 @@
       <div class="badges">
         <span id="conn-badge" class="badge off"><span class="dot"></span>서버 연결 중</span>
         <span id="nav-badge" class="badge idle"><span class="dot"></span>대기 중</span>
-        <span id="wander-badge" class="badge idle"><span class="dot"></span>랜덤 꺼짐</span>
         <span id="people-badge" class="badge idle">👤 감지 꺼짐</span>
         <span id="hide-badge" class="badge idle"><span class="dot"></span>위장 대기 중</span>
       </div>
@@ -36,7 +35,7 @@
       <section class="card" id="map-panel">
         <div class="card-head">
           <h2>매장 지도</h2>
-          <span class="hint">● 로봇 위치 &nbsp;⚑ 이동 목표</span>
+          <span class="hint">● 로봇 &nbsp;⚑ 목표 &nbsp;━ Nav2 경로 (출발·복귀 시)</span>
         </div>
         <div id="map-wrap">
           <img id="floor" src="1206_top.png" alt="식당 탑뷰 지도">
@@ -59,17 +58,17 @@
       <section class="card" id="chat-panel">
         <div class="card-head">
           <h2>로봇에게 말하기</h2>
-          <span class="hint">예: “T2로 가줘” · “hideout으로 이동” · “랜덤이동 해” · “지금 어디야?” · “앞에 뭐가 보여?” · “멈춰”</span>
+          <span class="hint">예: “T2로 가줘” · “출발” · “hideout으로 이동” · “지금 어디야?” · “앞에 뭐가 보여?” · “멈춰”</span>
         </div>
         <div id="chat-log">
           <div class="msg bot">
             <div class="bubble">2026 AMR 교실 시뮬 Storagy입니다. 🤖<br>
-              T1~T4·hideout·진입문으로 이동하거나, 배회·카메라 확인을 말씀해 주세요.<br>
+              T1~T4·hideout·진입문으로 이동하거나, 카메라 확인을 말씀해 주세요.<br>
               <small>(P1 FSM 테스트: takeover/mission_done은 터미널 topic pub)</small></div>
           </div>
         </div>
         <form id="chat-form" autocomplete="off">
-          <input id="chat-input" placeholder="예: T3로 가줘 / 랜덤이동 해 / 멈춰" maxlength="300">
+          <input id="chat-input" placeholder="예: T3로 가줘 / 출발 / 멈춰" maxlength="300">
           <button type="submit" id="chat-send">보내기</button>
         </form>
         <div class="chat-actions" style="margin-top: 10px; display: flex; gap: 8px;">
@@ -80,7 +79,7 @@
       <section class="card" id="log-panel">
         <div class="card-head">
           <h2>이벤트 로그</h2>
-          <span class="hint">Nav2 목표 · T1~T4 · hideout · 배회 · 취소</span>
+          <span class="hint">Nav2 목표 · T1~T4 · hideout · 취소</span>
         </div>
         <div id="event-log">
           <div class="event empty">아직 기록된 이벤트가 없습니다.</div>

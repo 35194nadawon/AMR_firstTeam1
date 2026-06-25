@@ -53,6 +53,7 @@ class HideStateMachine(Node):
         self.create_subscription(Bool, '/hide/takeover_start', self._on_takeover, 10)
         self.create_subscription(Bool, '/hide/mission_done', self._on_mission_done, 10)
         self.create_subscription(Bool, '/hide/dock_done', self._on_dock_done, 10)
+        self.create_subscription(Bool, '/hide/return_arrived', self._on_return_arrived, 10)
 
         # --- 서비스 서버 (LED / OLED) ---
         self.lamp_srv = self.create_service(SetLamp, '/hide/set_lamp', self._on_set_lamp)
@@ -83,6 +84,10 @@ class HideStateMachine(Node):
         if msg.data and self.state in (State.DOCK, State.RETURN):
             self._enter_freeze()
 
+    def _on_return_arrived(self, msg: Bool):
+        if msg.data and self.state == State.RETURN:
+            self._set_state(State.DOCK)
+
     # ------------------------------------------------------------- 상태 동작
     def _enter_freeze(self):
         self._set_state(State.FREEZE)
@@ -100,8 +105,8 @@ class HideStateMachine(Node):
 
     def _return_to_hideout(self):
         self._set_state(State.RETURN)
-        # TODO(R2 연동): hideout 좌표로 Nav2 goal 발행. 근접 시 DOCK 전이.
-        self._set_state(State.DOCK)
+        self.get_logger().info(
+            '복귀 시작 — hide_aruco_dock 이 hideout Nav2 주행을 담당합니다.')
 
     # ------------------------------------------------------------ LED / OLED
     def _on_set_lamp(self, req, resp):

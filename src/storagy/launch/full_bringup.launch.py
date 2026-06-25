@@ -4,10 +4,13 @@
 터미널 여러 개에서 따로 실행하던 노드들을 한 번에 실행한다:
   1. simulation_bringup.launch.py (Gazebo + RViz + Nav2, use_slam:=false use_nav2:=true)
   2. wander_nav_bt_node.py        (배회 BT 노드, Nav2 기동 대기를 위해 지연 실행)
-  3. yolo_detector.py             (YOLO 사람 감지)
+  3. yolo_detector.py             (YOLO 사람 감지 — RViz/대시보드용, 기본 on)
   4. storagy_llm agent_service    (LLM 에이전트 서비스)
   5. storagy_llm web_dashboard    (웹 대시보드)
-  6. hide_state_machine    (P1 FSM — 기본 on, enable_hide:=false 로 끄기)
+  6. hide_state_machine + hide_aruco_dock (P1/P2 FSM·복귀·도킹, enable_hide:=false 로 끄기)
+
+  P3 사람감지(human_perception·dynamic_costmap)는 full_bringup 에 포함하지 않음.
+  필요 시 hide_bringup enable_human_perception:=true 로 별도 기동.
 
 agent_client 는 대화형 CLI 이므로 여기 포함하지 않는다. 별도 터미널에서:
   ros2 run storagy_llm agent_client
@@ -42,10 +45,13 @@ def generate_launch_description():
     scripts_dir = os.path.join(ws_root, 'src', 'storagy', 'scripts')
     hide_fsm_script = os.path.join(
         ws_root, 'src', 'storagy_hide', 'storagy_hide', 'state_machine.py')
+    hide_params = os.path.join(
+        ws_root, 'src', 'storagy_hide', 'params', 'hide.yaml')
 
     use_slam = LaunchConfiguration('use_slam')
     use_nav2 = LaunchConfiguration('use_nav2')
     enable_hide = LaunchConfiguration('enable_hide')
+    enable_yolo = LaunchConfiguration('enable_yolo')
 
     simulation = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
@@ -63,11 +69,11 @@ def generate_launch_description():
         output='screen',
     )
 
-    # yolov8n.pt 가 워크스페이스 루트에 있어 cwd 를 맞춰준다
     yolo_detector = ExecuteProcess(
         cmd=['python3', os.path.join(scripts_dir, 'yolo_detector.py')],
         cwd=ws_root,
         output='screen',
+        condition=IfCondition(enable_yolo),
     )
 
     # agent_service / web_dashboard 는 colcon 이 만든 console_script 래퍼다.
@@ -96,25 +102,36 @@ def generate_launch_description():
         output='screen',
     )
 
+    hide_aruco_dock = Node(
+        package='storagy_hide',
+        executable='aruco_dock',
+        name='hide_aruco_dock',
+        parameters=[hide_params],
+        output='screen',
+    )
+
     return LaunchDescription([
         DeclareLaunchArgument('use_slam', default_value='false'),
         DeclareLaunchArgument('use_nav2', default_value='true'),
         DeclareLaunchArgument(
             'enable_hide', default_value='true',
             description='true=숨는팀 P1 FSM(state_machine) 자동 기동'),
+        DeclareLaunchArgument(
+            'enable_yolo', default_value='true',
+            description='true=yolo_detector(RViz/대시보드). false=YOLO 끄기'),
         simulation,
         # Gazebo/Nav2 가 어느 정도 올라온 뒤 나머지 노드 시작
         TimerAction(period=5.0, actions=[
-            yolo_detector,
             agent_service,
             web_dashboard,
+            yolo_detector,
         ]),
         TimerAction(period=15.0, actions=[wander_node]),
         TimerAction(
             period=20.0,
             actions=[
                 GroupAction(
-                    actions=[hide_state_machine],
+                    actions=[hide_state_machine, hide_aruco_dock],
                     condition=IfCondition(enable_hide),
                 ),
             ],

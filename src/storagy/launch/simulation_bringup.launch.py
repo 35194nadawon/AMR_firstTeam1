@@ -108,7 +108,7 @@ def generate_launch_description():
 
     # 8. Include SLAM (slam_toolbox - online async mapping)
     pkg_slam_toolbox = get_package_share_directory('slam_toolbox')
-    use_slam = LaunchConfiguration('use_slam', default='true')
+    use_slam = LaunchConfiguration('use_slam', default='false')
     slam = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_slam_toolbox, 'launch', 'online_async_launch.py')
@@ -139,8 +139,8 @@ def generate_launch_description():
         ),
         DeclareLaunchArgument(
             'use_slam',
-            default_value='true',
-            description='Whether to launch slam_toolbox SLAM'
+            default_value='false',
+            description='Whether to launch slam_toolbox SLAM (Nav2 정적맵 사용 시 false)'
         ),
         DeclareLaunchArgument(
             'use_nav2',

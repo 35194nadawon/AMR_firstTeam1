@@ -2,7 +2,10 @@
 """P3(파트 A) — 사람 감지 + 120도 keepout 부채꼴 산출.
 
 토이 가이드(컨셉 3): 매장 손님(인간)의 "시야각(120°)"을 진입금지 영역으로 만들어,
-로봇이 사람 시선/동선을 피해 구석 사각지대로 복귀·은폐하는 근거로 쓴다(백그라운드 상시).
+로봇이 사람 시선/동선을 피해 구석 사각지대로 복귀·은폐하는 근거로 쓴다.
+
+기본값 active_only_in_freeze=true — FREEZE(위장) 상태에서만 YOLO·keepout 동작.
+GUIDE/RETURN/DOCK Nav2 주행 중에는 비활성(오탐·CPU 부하로 주행 멈춤 방지).
 
 파이프라인:
   /camera/color/image_raw --YOLO(person)--> 박스 중심(u,v)
@@ -21,9 +24,9 @@ import math
 import numpy as np
 import rclpy
 from rclpy.node import Node
-from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import CameraInfo, Image
-from std_msgs.msg import Bool
+from std_msgs.msg import Bool, String
 from geometry_msgs.msg import Point32, Pose, PoseArray, PolygonStamped
 from cv_bridge import CvBridge
 from ultralytics import YOLO
@@ -40,6 +43,8 @@ class HumanPerception(Node):
         self.declare_parameter('min_depth_m', 0.2)
         self.declare_parameter('max_depth_m', 8.0)
         self.declare_parameter('frame_id', 'camera_link')
+        # Nav2 주행(GUIDE/RETURN/DOCK) 중 YOLO·keepout 비활성 — 오탐·CPU 부하로 주행 멈춤 방지
+        self.declare_parameter('active_only_in_freeze', True)
 
         self.fov_deg = self.get_parameter('fov_deg').value
         self.zone_radius = self.get_parameter('zone_radius_m').value
@@ -47,6 +52,8 @@ class HumanPerception(Node):
         self.min_depth = self.get_parameter('min_depth_m').value
         self.max_depth = self.get_parameter('max_depth_m').value
         self.frame_id = self.get_parameter('frame_id').value
+        self.active_only_in_freeze = self.get_parameter('active_only_in_freeze').value
+        self.hide_state = 'FREEZE'
 
         model_name = self.get_parameter('model').value
         self.get_logger().info(f'YOLO 로드: {model_name}')
@@ -74,7 +81,36 @@ class HumanPerception(Node):
         self.create_subscription(
             Image, '/camera/depth/image_raw', self._on_depth, image_qos)
 
-        self.get_logger().info('P3 HumanPerception 시작')
+        state_qos = QoSProfile(
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            depth=1,
+        )
+        self.create_subscription(String, '/hide/state', self._on_hide_state, state_qos)
+
+        self.get_logger().info(
+            f'P3 HumanPerception 시작 (active_only_in_freeze={self.active_only_in_freeze})')
+
+    def _on_hide_state(self, msg: String):
+        prev = self.hide_state
+        self.hide_state = msg.data
+        if self.active_only_in_freeze and prev == 'FREEZE' and msg.data != 'FREEZE':
+            self._publish_clear()
+
+    def _perception_enabled(self) -> bool:
+        if not self.active_only_in_freeze:
+            return True
+        return self.hide_state == 'FREEZE'
+
+    def _publish_clear(self):
+        empty = PoseArray()
+        empty.header.frame_id = self.frame_id
+        self.persons_pub.publish(empty)
+        self.detected_pub.publish(Bool(data=False))
+        clear = PolygonStamped()
+        clear.header.frame_id = self.frame_id
+        self.zones_pub.publish(clear)
 
     def _on_info(self, msg: CameraInfo):
         self.K = np.array(msg.k, dtype=np.float64).reshape(3, 3)
@@ -92,6 +128,8 @@ class HumanPerception(Node):
         self.latest_depth = depth
 
     def _on_color(self, msg: Image):
+        if not self._perception_enabled():
+            return
         if self.K is None or self.latest_depth is None:
             return
 

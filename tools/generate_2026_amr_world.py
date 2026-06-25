@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
-"""Gazebo 월드 생성: 1206_2.dae 밑판 + 1206_sim_1 맵 기반 책상 4개(T1~T4) + 진입문.
+"""Gazebo 월드 생성: 1206_2.dae 밑판 + layout 기반 T1~T4 + Nav2 맵 동기화.
 
-Nav2 static map(1206_sim_1.pgm)에 layout과 동일한 테이블·의자·hideout footprint를 stamp.
+Nav2 PGM(1206_sim_1.pgm)은 layout.json(= Gazebo SDF 와 동일 원본)에서 생성:
+  1) walls.pgm(또는 스캔 맵)에서 legacy 가구 영역 제거 후 벽 베이스
+  2) layout 기준 테이블·의자·hideout stamp
 
 사용:
-  python3 tools/generate_2026_amr_world.py
+  python3 tools/generate_2026_amr_world.py --sync-gazebo
 """
 from __future__ import annotations
 
@@ -25,6 +27,7 @@ WALLS_PGM = PKG_ROOT / 'src/storagy/map/1206_sim_1_walls.pgm'
 DEFAULT_META = PKG_ROOT / 'src/storagy/worlds/2026_amr_layout.json'
 DEFAULT_SDF = PKG_ROOT / 'src/storagy/worlds/2026_amr.sdf'
 POINTS_YAML = PKG_ROOT / 'src/storagy_llm/params/points.yaml'
+HIDE_YAML = PKG_ROOT / 'src/storagy_hide/params/hide.yaml'
 SRC_DAE = PKG_ROOT / 'src/storagy/meshes/1206_2.dae'
 SIM_DAE = PKG_ROOT / 'src/storagy/meshes/1206_2_sim.dae'
 DAE_NS = 'http://www.collada.org/2005/11/COLLADASchema'
@@ -55,8 +58,11 @@ CHAIR_BACK_H = 0.38
 CHAIR_LEG_H = 0.43
 CHAIR_GAP = 0.12
 
-# T1 -x면: 진입문(-4.47, 0.12) 쪽 통로 — 의자 2개 배치 안 함
-CHAIR_SKIP_SIDES = {'t1': {'nx'}}
+# T1~T4 -x면: 메인 통로(진입문 쪽) — 의자 2개는 +x면만 (T1과 동일)
+CHAIR_SKIP_SIDES = {name: {'nx'} for name in ('t1', 't2', 't3', 't4')}
+
+# T2~T4 -x(좌측 열) legacy 맵 blob 제거 — +x(오른쪽 열) 의자 2개는 유지
+NX_CHAIR_CLEAR_DESKS = {'t2', 't3', 't4'}
 
 # T2/T3 동쪽 통로를 북↔남으로 배회 (Nav2 /scan 장애물로 회피) — waypoints는 layout에서 계산
 # YOLO 오탐·배회 actor 간섭을 줄이려면 기본 off. 필요 시 --walking-person
@@ -112,6 +118,7 @@ CHAIR_COLORS = {
     't4': (0.58, 0.70, 0.42),
 }
 
+# 벽 CC 최소 면적(px) · 실내 노이즈 blob 상한
 # T1~T4 검색 영역 (--from-map 옵션용, 맵 윤곽선 자동 추정)
 TABLE_REGIONS = {
     'T1': {'x': (-3.5, -2.2), 'y': (0.5, 2.5)},
@@ -170,6 +177,24 @@ def chairs_for_desk(spec: dict) -> list[dict]:
     return chairs
 
 
+def _nx_chair_slots(spec: dict) -> list[tuple[float, float]]:
+    """-x면 의자 2개 위치 (맵 legacy blob 제거용, Gazebo에는 배치 안 함)."""
+    tx, ty = spec['x'], spec['y']
+    hw = spec['size_x'] / 2.0
+    hl = spec['size_y'] / 2.0
+    dist = CHAIR_GAP + CHAIR_SEAT / 2.0
+    along = max(hl - CHAIR_SEAT / 2 - 0.08, hl * 0.45)
+    cx = tx - hw - dist
+    return [(cx, ty + along), (cx, ty - along)]
+
+
+def _clear_nx_chair_zones(img: np.ndarray, desk: dict) -> None:
+    if desk['name'] not in NX_CHAIR_CLEAR_DESKS:
+        return
+    for x, y in _nx_chair_slots(desk):
+        stamp_rect(img, x, y, CHAIR_SEAT, CHAIR_SEAT, 0.0, FREE)
+
+
 def px2world(px: float, py: float, height: int) -> tuple[float, float]:
     wx = ORIGIN_1206[0] + px * RES
     wy = ORIGIN_1206[1] + (height - py) * RES
@@ -217,6 +242,18 @@ def _clear_region_world(
                 img[py, px] = value
 
 
+def _fill_region_world(
+    img: np.ndarray,
+    x0: float,
+    x1: float,
+    y0: float,
+    y1: float,
+    value: int = OCCUPIED,
+) -> None:
+    """월드 좌표 영역을 지정 값으로 채움 (외벽 윤곽 복구용)."""
+    _clear_region_world(img, x0, x1, y0, y1, value)
+
+
 def _clear_spawn_corridor(img: np.ndarray, layout: dict) -> None:
     """진입문~스폰 왼쪽 legacy 벽 돌출(원형 inflation) 제거 — hideout 위쪽 통로만."""
     door = layout['entry_door']
@@ -242,10 +279,58 @@ def _clear_spawn_corridor(img: np.ndarray, layout: dict) -> None:
 
 
 def _clear_main_corridor(img: np.ndarray, layout: dict) -> None:
-    """메인 동서 통로(y≈origin) legacy mesh occupied 제거."""
+    """메인 동서 통로(y≈origin) legacy mesh·가구 stamp 겹침 제거."""
     oy = layout['origin']['y']
     room = layout['base']['room_1206']
-    _clear_region_world(img, -4.95, room['x'][1] - 0.2, oy - 0.38, oy + 0.38)
+    _clear_region_world(img, -4.95, room['x'][1] - 0.2, oy - 0.60, oy + 0.60)
+
+
+def _clear_map_artifacts(img: np.ndarray, layout: dict) -> None:
+    """실내 legacy artifact·unknown 잔여 제거 (외벽은 건드리지 않음)."""
+    room = layout['base']['room_1206']
+    inner_x = room['x'][0] + 0.25
+    door = layout['entry_door']
+    origin = layout['origin']
+    dw = door.get('width_m', 0.85)
+    hide = layout['hideout']
+    hide_top = hide['y'] + HIDEOUT_SIZE_Y / 2 + 0.05
+
+    _clear_region_world(
+        img, door['x'] - 0.55, door['x'] + 0.15,
+        door['y'] - dw / 2 - 0.15, door['y'] + dw / 2 + 0.15,
+    )
+    _clear_region_world(
+        img, origin['x'] - 0.55, origin['x'] + 0.55,
+        origin['y'] - 0.55, origin['y'] + 0.55,
+    )
+    _clear_region_world(img, inner_x, -3.85, hide_top, origin['y'] + 0.55)
+    _clear_region_world(img, -4.05, -3.05, -2.75, -1.85)
+    # legacy walk 통로 잔여 (LiDAR·costmap 청록 노이즈)
+    _clear_region_world(img, 1.00, 1.40, -2.60, 2.60)
+
+
+def _clear_desk_branch_corridors(img: np.ndarray, layout: dict) -> None:
+    """T2/T3/T4 — 분기·동쪽 통로 폭 확보."""
+    oy = layout['origin']['y']
+    by_name = {d['name']: d for d in layout['desks']}
+    if 't2' in by_name and 't3' in by_name:
+        tx = by_name['t2']['x']
+        _clear_region_world(img, tx - 0.45, tx + 0.50, oy - 0.15, 1.05)
+        _clear_region_world(img, tx - 0.45, tx + 0.50, -1.05, oy + 0.15)
+    if 't4' in by_name:
+        t4 = by_name['t4']
+        _clear_region_world(
+            img, t4['x'] - 0.25, room_x_max(layout) - 0.08,
+            oy - 0.40, oy + 0.40,
+        )
+        _clear_region_world(
+            img, t4['x'] - 0.35, room_x_max(layout) - 0.15,
+            t4['y'] - 0.55, t4['y'] + 0.55,
+        )
+
+
+def room_x_max(layout: dict) -> float:
+    return layout['base']['room_1206']['x'][1]
 
 
 def _unknown_to_free_in_room(img: np.ndarray, layout: dict, margin: float = 0.2) -> None:
@@ -261,28 +346,94 @@ def _unknown_to_free_in_room(img: np.ndarray, layout: dict, margin: float = 0.2)
                 img[py, px] = FREE
 
 
+def _normalize_unknown_cells(img: np.ndarray, layout: dict) -> None:
+    """실내 unknown — 외곽은 벽(occupied), 내부는 free (플래너 unknown 회피)."""
+    room = layout['base']['room_1206']
+    h, w = img.shape
+    edge_m = 0.35
+    for py in range(h):
+        for px in range(w):
+            if img[py, px] != 205:
+                continue
+            wx, wy = px2world(px, py, h)
+            if not (room['x'][0] <= wx <= room['x'][1] and room['y'][0] <= wy <= room['y'][1]):
+                continue
+            near_edge = (
+                wx <= room['x'][0] + edge_m or wx >= room['x'][1] - edge_m
+                or wy <= room['y'][0] + edge_m or wy >= room['y'][1] - edge_m
+            )
+            img[py, px] = OCCUPIED if near_edge else FREE
+
+
+def _seal_outer_walls(img: np.ndarray, layout: dict, thickness_m: float = 0.20) -> None:
+    """room_1206 외곽·실외를 occupied로 고정 — RViz 맵 윤곽선 복구."""
+    room = layout['base']['room_1206']
+    rx0, rx1 = room['x']
+    ry0, ry1 = room['y']
+    t = thickness_m
+    # 실외
+    _fill_region_world(img, -20.0, 20.0, ry1 + t, 20.0)
+    _fill_region_world(img, -20.0, 20.0, -20.0, ry0 - t)
+    _fill_region_world(img, -20.0, rx0 - t, -20.0, 20.0)
+    _fill_region_world(img, rx1 + t, 20.0, -20.0, 20.0)
+    # 실내 외벽 띠 (unknown/free 잔여 → occupied)
+    _fill_region_world(img, rx0, rx0 + t, ry0, ry1)
+    _fill_region_world(img, rx1 - t, rx1, ry0, ry1)
+    _fill_region_world(img, rx0, rx1, ry0, ry0 + t)
+    _fill_region_world(img, rx0, rx1, ry1 - t, ry1)
+
+
+def _in_room(wx: float, wy: float, layout: dict, margin: float = 0.12) -> bool:
+    room = layout['base']['room_1206']
+    return (
+        room['x'][0] + margin <= wx <= room['x'][1] - margin
+        and room['y'][0] + margin <= wy <= room['y'][1] - margin
+    )
+
+
 def denoise_static_map(img: np.ndarray, layout: dict, min_blob: int = 8) -> None:
     """고립된 소형 occupied/unknown blob 제거 (벽 대형 blob은 유지)."""
-    _unknown_to_free_in_room(img, layout)
+    room = layout['base']['room_1206']
+    edge_m = 0.45
     combined = np.isin(img, [0, 205]).astype(np.uint8)
-    num, labels, stats, _ = cv2.connectedComponentsWithStats(combined, 8)
+    num, labels, stats, centroids = cv2.connectedComponentsWithStats(combined, 8)
+    h, w = img.shape
     for i in range(1, num):
-        if stats[i, cv2.CC_STAT_AREA] < min_blob:
-            img[labels == i] = FREE
+        if stats[i, cv2.CC_STAT_AREA] >= min_blob:
+            continue
+        cx, cy = centroids[i]
+        wx = ORIGIN_1206[0] + cx * RES
+        wy = ORIGIN_1206[1] + (h - cy) * RES
+        near_wall = (
+            wx <= room['x'][0] + edge_m or wx >= room['x'][1] - edge_m
+            or wy <= room['y'][0] + edge_m or wy >= room['y'][1] - edge_m
+        )
+        if near_wall:
+            continue
+        img[labels == i] = FREE
 
 
-def refresh_walls_base(layout: dict, map_path: Path = MAP_1206) -> np.ndarray:
-    """walls.pgm 재생성 — 통로 clearing + denoise."""
-    if WALLS_PGM.is_file():
+def refresh_walls_base(
+    layout: dict,
+    map_path: Path = MAP_1206,
+    *,
+    force: bool = False,
+) -> np.ndarray:
+    """walls.pgm 베이스 — force=True 이면 layout 기준 재생성."""
+    if not force and WALLS_PGM.is_file():
         walls = cv2.imread(str(WALLS_PGM), cv2.IMREAD_GRAYSCALE)
-    else:
-        src = cv2.imread(str(map_path), cv2.IMREAD_GRAYSCALE)
-        if src is None:
-            raise RuntimeError(f'cannot read {map_path}')
-        walls = extract_walls_base(src, layout)
+        if walls is not None:
+            sealed = walls.copy()
+            _seal_outer_walls(sealed, layout)
+            return sealed
+    src = cv2.imread(str(map_path), cv2.IMREAD_GRAYSCALE)
+    if src is None:
+        raise RuntimeError(f'cannot read {map_path}')
+    walls = extract_walls_base(src, layout)
     _clear_main_corridor(walls, layout)
     _clear_spawn_corridor(walls, layout)
     denoise_static_map(walls, layout)
+    _seal_outer_walls(walls, layout)
     WALLS_PGM.parent.mkdir(parents=True, exist_ok=True)
     cv2.imwrite(str(WALLS_PGM), walls)
     return walls
@@ -304,6 +455,7 @@ def extract_walls_base(img: np.ndarray, layout: dict) -> np.ndarray:
                 walls, chair['x'], chair['y'],
                 CHAIR_SEAT + pad * 2, CHAIR_SEAT + pad * 2,
                 chair.get('yaw_rad', 0.0), FREE)
+        _clear_nx_chair_zones(walls, desk)
     hide = layout['hideout']
     stamp_rect(
         walls, hide['x'], hide['y'],
@@ -314,10 +466,12 @@ def extract_walls_base(img: np.ndarray, layout: dict) -> np.ndarray:
 
 
 def sync_nav_map(walls: np.ndarray, layout: dict) -> np.ndarray:
-    """가제보 layout → Nav2 static map (벽 + 테이블·의자·hideout)."""
+    """walls 베이스 + layout 가구 stamp (외벽·통로는 walls 그대로)."""
     out = walls.copy()
-    _clear_spawn_corridor(out, layout)
-    _clear_main_corridor(out, layout)
+    # legacy artifact·통로 확보는 가구 stamp 전에만 (stamp 후 호출 시 테이블이 깨짐)
+    _clear_map_artifacts(out, layout)
+    _clear_desk_branch_corridors(out, layout)
+    _normalize_unknown_cells(out, layout)
 
     hide = layout['hideout']
     stamp_rect(out, hide['x'], hide['y'], HIDEOUT_SIZE_X, HIDEOUT_SIZE_Y, 0.0, OCCUPIED)
@@ -332,8 +486,9 @@ def sync_nav_map(walls: np.ndarray, layout: dict) -> np.ndarray:
                 out, chair['x'], chair['y'],
                 CHAIR_SEAT, CHAIR_SEAT,
                 chair.get('yaw_rad', 0.0), OCCUPIED)
+        _clear_nx_chair_zones(out, desk)
 
-    denoise_static_map(out, layout)
+    _seal_outer_walls(out, layout)
     return out
 
 
@@ -345,7 +500,7 @@ def write_nav_map(walls: np.ndarray, layout: dict, out_path: Path) -> None:
 
 
 def ensure_walls_base(source: np.ndarray, layout: dict) -> np.ndarray:
-    return refresh_walls_base(layout, MAP_1206)
+    return refresh_walls_base(layout, MAP_1206, force=True)
 
 
 def detect_entry_door(img: np.ndarray) -> dict:
@@ -640,8 +795,8 @@ def apply_desk_spawn_shifts(layout: dict) -> None:
         refresh_desk_chairs(desk)
 
 
-def generate_tactile_path(layout: dict) -> str:
-    """비충돌형 노란색 점자 블록 시각 경로 (Gazebo 전용, Nav2 맵 미반영)."""
+def tactile_path_points(layout: dict) -> list[tuple[float, float]]:
+    """비충돌형 노란색 점자 블록 시각 경로 좌표 (Gazebo·8090 대시보드 공통)."""
     points: list[tuple[float, float]] = []
     origin = layout['origin']
     oy = origin['y']
@@ -672,7 +827,12 @@ def generate_tactile_path(layout: dict) -> str:
     for p in points:
         if not any(math.hypot(p[0] - u[0], p[1] - u[1]) < 0.15 for u in unique_points):
             unique_points.append(p)
+    return unique_points
 
+
+def generate_tactile_path(layout: dict) -> str:
+    """비충돌형 노란색 점자 블록 시각 경로 (Gazebo 전용, Nav2 맵 미반영)."""
+    unique_points = tactile_path_points(layout)
     sdf_parts = []
     for idx, (px, py) in enumerate(unique_points):
         sdf_parts.append(f"""    <model name="tactile_block_{idx}">
@@ -866,8 +1026,18 @@ CORRIDOR_NAV_GOALS = {
         round(layout['origin']['x'] + MIN_GOAL_DIST_FROM_ORIGIN, 2),
         layout['origin']['y'],
     ),
-    't2': lambda layout: (_desk_by_name(layout, 't2')['x'], 0.95),
-    't3': lambda layout: (_desk_by_name(layout, 't3')['x'], -1.0),
+    't2': lambda layout: (_desk_by_name(layout, 't2')['x'], 0.25),
+    't3': lambda layout: (_desk_by_name(layout, 't3')['x'], -0.25),
+    # T4 — 책상 남쪽(-y) 접근
+    't4': lambda layout: (
+        round(_desk_by_name(layout, 't4')['x'], 2),
+        round(
+            _desk_by_name(layout, 't4')['y']
+            - _desk_by_name(layout, 't4')['size_y'] / 2
+            - 0.40,
+            2,
+        ),
+    ),
 }
 
 
@@ -913,21 +1083,59 @@ def is_nav_free(img: np.ndarray, px: int, py: int) -> bool:
     return int(img[py, px]) >= FREE
 
 
-def snap_to_free(img: np.ndarray, wx: float, wy: float, max_cells: int = 16) -> tuple[float, float]:
-    """seed 주변 BFS로 Nav2 static map free(254+) 셀에 스냅."""
+MIN_NAV_CLEARANCE_M = 0.35
+
+
+def _cell_clearance_m(img: np.ndarray, px: int, py: int, max_r: int = 20) -> float:
+    """free 셀에서 가장 가까운 occupied까지 거리(대략 반경)."""
+    h, w = img.shape
+    if not is_nav_free(img, px, py):
+        return 0.0
+    best = 0
+    for rad in range(1, max_r + 1):
+        ok = True
+        for a in np.linspace(0, 2 * math.pi, 16, endpoint=False):
+            cx = int(px + rad * math.cos(a))
+            cy = int(py + rad * math.sin(a))
+            if not (0 <= cx < w and 0 <= cy < h) or not is_nav_free(img, cx, cy):
+                ok = False
+                break
+        if ok:
+            best = rad
+        else:
+            break
+    return best * RES
+
+
+def snap_to_free(
+    img: np.ndarray,
+    wx: float,
+    wy: float,
+    max_cells: int = 24,
+    min_clearance_m: float = MIN_NAV_CLEARANCE_M,
+) -> tuple[float, float]:
+    """seed 주변 BFS로 Nav2 static map free 셀에 스냅 (최소 통로 여유 확보)."""
     from collections import deque
 
     h = img.shape[0]
     spx, spy = world2px(wx, wy, h)
-    if is_nav_free(img, spx, spy):
+
+    def acceptable(x: int, y: int) -> bool:
+        return is_nav_free(img, x, y) and _cell_clearance_m(img, x, y) >= min_clearance_m
+
+    if acceptable(spx, spy):
         return round(wx, 2), round(wy, 2)
     q: deque[tuple[int, int, int]] = deque([(spx, spy, 0)])
     seen = {(spx, spy)}
+    fallback: tuple[float, float] | None = None
     while q:
         x, y, depth = q.popleft()
         if depth > 0 and is_nav_free(img, x, y):
             fx, fy = px2world(x, y, h)
-            return round(fx, 2), round(fy, 2)
+            if acceptable(x, y):
+                return round(fx, 2), round(fy, 2)
+            if fallback is None:
+                fallback = (round(fx, 2), round(fy, 2))
         if depth >= max_cells:
             continue
         for dx, dy in (
@@ -938,6 +1146,8 @@ def snap_to_free(img: np.ndarray, wx: float, wy: float, max_cells: int = 16) -> 
             if (nx, ny) not in seen:
                 seen.add((nx, ny))
                 q.append((nx, ny, depth + 1))
+    if fallback is not None:
+        return fallback
     return round(wx, 2), round(wy, 2)
 
 
@@ -962,8 +1172,7 @@ def sync_gazebo_from_layout(
     if apply_shifts:
         apply_desk_spawn_shifts(layout)
     for desk in layout['desks']:
-        if 'chairs' not in desk or not desk['chairs']:
-            refresh_desk_chairs(desk)
+        refresh_desk_chairs(desk)
 
     img = cv2.imread(str(map_path), cv2.IMREAD_GRAYSCALE)
     if img is None:
@@ -1041,6 +1250,27 @@ def sync_points_yaml(layout: dict, path: Path = POINTS_YAML, map_path: Path = MA
     path.write_text(
         '# 1206_2 밑판 + 청사진 주석 T1~T4 (worlds/2026_amr_layout.json)\n'
         '# table* 좌표 = 테이블 앞 접근점(맵 free), 중심 아님\n'
+        + yaml.dump(data, allow_unicode=True, sort_keys=False),
+        encoding='utf-8',
+    )
+    hide = data['places'].get('hideout')
+    if hide:
+        sync_hide_yaml(hide['x'], hide['y'])
+
+
+def sync_hide_yaml(hideout_x: float, hideout_y: float) -> None:
+    """복귀 Nav2(hide_aruco_dock) hideout 좌표를 points.yaml 과 동기화."""
+    import yaml
+
+    if not HIDE_YAML.is_file():
+        return
+    data = yaml.safe_load(HIDE_YAML.read_text(encoding='utf-8'))
+    dock = data.setdefault('hide_aruco_dock', {}).setdefault('ros__parameters', {})
+    dock['hideout_x'] = float(hideout_x)
+    dock['hideout_y'] = float(hideout_y)
+    HIDE_YAML.write_text(
+        '# 숨는팀(토이 가이드, 컨셉 3) 공통 파라미터 — hide_bringup.launch.py 가 모든 노드에 주입.\n'
+        '# hideout 좌표는 sync_points_yaml 과 자동 동기화.\n'
         + yaml.dump(data, allow_unicode=True, sort_keys=False),
         encoding='utf-8',
     )
