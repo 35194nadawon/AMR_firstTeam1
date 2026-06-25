@@ -7,9 +7,13 @@ The rest of the system (simulation, wander BT, agent service) is untouched.
 """
 import json
 import math
+import os
+import tempfile
 import threading
 import time
 from pathlib import Path
+
+import openai
 
 import rclpy
 import tf2_ros
@@ -292,6 +296,51 @@ def create_app(node: WebDashboard) -> Flask:
         if not question:
             return jsonify({'answer': '질문이 비어 있습니다.'}), 400
         return jsonify({'answer': node.ask(question)})
+
+    @app.route('/api/voice', methods=['POST'])
+    def voice():
+        """Receive audio blob from browser, transcribe via OpenAI Whisper."""
+        if 'audio' not in request.files:
+            return jsonify({'error': '오디오 파일이 없습니다.'}), 400
+
+        audio_file = request.files['audio']
+        # Determine extension from MIME type sent by browser
+        mime = audio_file.content_type or 'audio/webm'
+        ext = '.webm'
+        if 'ogg' in mime:
+            ext = '.ogg'
+        elif 'wav' in mime:
+            ext = '.wav'
+        elif 'mp4' in mime or 'mp4a' in mime:
+            ext = '.mp4'
+
+        api_key = os.environ.get('OPENAI_API_KEY', '')
+        if not api_key:
+            return jsonify({'error': 'OPENAI_API_KEY가 설정되지 않았습니다.'}), 500
+
+        try:
+            client = openai.OpenAI(api_key=api_key)
+            with tempfile.NamedTemporaryFile(suffix=ext, delete=False) as tmp:
+                tmp_path = tmp.name
+                audio_file.save(tmp_path)
+
+            with open(tmp_path, 'rb') as f:
+                transcript = client.audio.transcriptions.create(
+                    model='whisper-1',
+                    file=f,
+                    language='ko',  # 한국어 우선; 자동 감지하려면 제거
+                )
+            text = transcript.text.strip()
+            node.get_logger().info(f"[STT] '{text}'")
+            return jsonify({'text': text})
+        except Exception as e:
+            node.get_logger().error(f"Whisper API error: {e}")
+            return jsonify({'error': f'음성 인식 오류: {e}'}), 500
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
 
     return app
 

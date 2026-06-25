@@ -216,6 +216,34 @@ h1 {
 #chat-send:hover { background: var(--accent-deep); }
 #chat-send:disabled { background: var(--idle); cursor: default; }
 
+/* mic button */
+#mic-btn {
+  border: 2px solid var(--line);
+  background: var(--card);
+  color: var(--ink);
+  font-size: 18px;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: background .15s, border-color .15s, transform .1s;
+}
+#mic-btn:hover { background: var(--bg); border-color: var(--accent); transform: scale(1.08); }
+#mic-btn:disabled { opacity: .5; cursor: default; }
+#mic-btn.recording {
+  border-color: #e03e3e;
+  background: #fff0f0;
+  animation: mic-pulse 1s ease-in-out infinite;
+}
+@keyframes mic-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(224, 62, 62, 0.4); }
+  50%       { box-shadow: 0 0 0 8px rgba(224, 62, 62, 0); }
+}
+
 /* ---------- event log ---------- */
 #event-log {
   height: 180px;

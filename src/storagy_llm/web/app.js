@@ -285,3 +285,116 @@ if (serviceDoneBtn) {
     }
   });
 }
+
+/* ---------- voice (STT via OpenAI Whisper) ---------- */
+const micBtn = document.getElementById('mic-btn');
+let mediaRecorder = null;
+let audioChunks = [];
+let micStream = null;
+
+async function startRecording() {
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  } catch (e) {
+    appendMsg('bot', '마이크 접근 권한이 없습니다. 브라우저 설정을 확인해 주세요.');
+    return;
+  }
+
+  // Prefer webm/opus; Safari fallback to audio/mp4
+  const mimeType = MediaRecorder.isTypeSupported('audio/webm;codecs=opus')
+    ? 'audio/webm;codecs=opus'
+    : MediaRecorder.isTypeSupported('audio/webm')
+      ? 'audio/webm'
+      : 'audio/mp4';
+
+  audioChunks = [];
+  mediaRecorder = new MediaRecorder(micStream, { mimeType });
+  mediaRecorder.ondataavailable = (e) => { if (e.data.size > 0) audioChunks.push(e.data); };
+  mediaRecorder.onstop = sendVoice;
+  mediaRecorder.start();
+
+  micBtn.textContent = '🔴';
+  micBtn.title = '녹음 중… (클릭하여 종료)';
+  micBtn.classList.add('recording');
+}
+
+function stopRecording() {
+  if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+    mediaRecorder.stop();
+  }
+  if (micStream) {
+    micStream.getTracks().forEach(t => t.stop());
+    micStream = null;
+  }
+  micBtn.textContent = '🎤';
+  micBtn.title = '음성 입력 (클릭하여 시작/종료)';
+  micBtn.classList.remove('recording');
+}
+
+async function sendVoice() {
+  if (!audioChunks.length) return;
+  const blob = new Blob(audioChunks, { type: mediaRecorder.mimeType });
+  audioChunks = [];
+
+  const statusMsg = appendMsg('bot typing', '🎤 음성을 인식하는 중…');
+  chatInput.disabled = true;
+  chatSend.disabled = true;
+  micBtn.disabled = true;
+
+  try {
+    const formData = new FormData();
+    formData.append('audio', blob, 'voice' + (blob.type.includes('mp4') ? '.mp4' : '.webm'));
+
+    const res = await fetch('/api/voice', { method: 'POST', body: formData });
+    const data = await res.json();
+
+    if (data.error) {
+      statusMsg.querySelector('.bubble').textContent = `❌ ${data.error}`;
+      statusMsg.classList.remove('typing');
+      return;
+    }
+
+    const text = data.text || '';
+    statusMsg.remove();
+
+    if (!text) {
+      appendMsg('bot', '음성을 인식하지 못했습니다. 다시 시도해 주세요.');
+      return;
+    }
+
+    // 채팅창에 표시 후 자동 전송
+    appendMsg('user', `🎤 ${text}`);
+    const typingBot = appendMsg('bot typing', '응답을 기다리는 중');
+    try {
+      const chatRes = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: text }),
+      });
+      const chatData = await chatRes.json();
+      typingBot.querySelector('.bubble').textContent = chatData.answer;
+    } catch (e) {
+      typingBot.querySelector('.bubble').textContent = '서버와 통신할 수 없습니다.';
+    } finally {
+      typingBot.classList.remove('typing');
+    }
+  } catch (e) {
+    statusMsg.querySelector('.bubble').textContent = '음성 인식 요청에 실패했습니다.';
+    statusMsg.classList.remove('typing');
+  } finally {
+    chatInput.disabled = false;
+    chatSend.disabled = false;
+    micBtn.disabled = false;
+    chatInput.focus();
+    chatLog.scrollTop = chatLog.scrollHeight;
+  }
+}
+
+micBtn.addEventListener('click', () => {
+  if (mediaRecorder && mediaRecorder.state === 'recording') {
+    stopRecording();
+  } else {
+    startRecording();
+  }
+});
+
