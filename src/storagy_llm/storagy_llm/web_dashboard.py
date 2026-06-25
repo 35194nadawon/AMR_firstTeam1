@@ -125,10 +125,13 @@ class WebDashboard(Node):
         self.add_event(msg.data)
 
     def hide_state_callback(self, msg: String):
+        notify = False
         with self.lock:
             if self.hide_state != msg.data:
-                self.add_event(f"?⑤뒗? ?곹깭 蹂寃? {msg.data}")
+                notify = True
             self.hide_state = msg.data
+        if notify:
+            self.add_event(f"숨는팀 상태 변경: {msg.data}")
 
     def wander_callback(self, msg: Bool):
         with self.lock:
