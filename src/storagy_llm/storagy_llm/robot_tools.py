@@ -174,8 +174,13 @@ class ToolSet(Node):
     def _on_hide_state(self, msg: String):
         self.hide_state = msg.data
 
-    def _require_guide(self) -> str | None:
+    def _require_guide(self, auto_wakeup=False) -> str | None:
         if self.hide_state == 'FREEZE':
+            if auto_wakeup:
+                self.get_logger().info("[INTEGRATED] FREEZE 상태 감지 - 자동 WAKE (takeover_start) 신호 전송")
+                self.start_takeover()
+                time.sleep(0.5)
+                return None
             return ("[HIDE] FREEZE(위장) 상태라 이동할 수 없습니다. "
                     "먼저 start_takeover로 기상/임무 교대를 해 주세요.")
         return None
@@ -406,6 +411,12 @@ class ToolSet(Node):
         return "[ERR] 이미지 분석 및 설명 기능을 사용할 수 없습니다."
 
     def navigate_to_pose(self, x, y, qz=0.0, qw=1.0, done_callback=None):
+        blocked = self._require_guide(auto_wakeup=True)
+        if blocked:
+            self.get_logger().warn(f"[NAV] Navigation blocked: {blocked}")
+            if done_callback:
+                done_callback(False)
+            return
         self.publish_llm_active(True)
         goal = NavigateToPose.Goal()
         ps = PoseStamped()
@@ -487,7 +498,7 @@ class ToolSet(Node):
         return aliases.get(place, place)
 
     def move_to_location(self, place: str):
-        blocked = self._require_guide()
+        blocked = self._require_guide(auto_wakeup=True)
         if blocked:
             return blocked
         place = self._resolve_place(place)
@@ -513,7 +524,7 @@ class ToolSet(Node):
         )
 
     def start_guide(self) -> str:
-        blocked = self._require_guide()
+        blocked = self._require_guide(auto_wakeup=True)
         if blocked:
             return blocked
         if not self.guide_target_set:
