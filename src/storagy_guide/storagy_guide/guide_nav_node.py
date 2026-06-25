@@ -168,10 +168,10 @@ class GuideNavNode(Node):
             self.get_logger().warn('Guide goal blocked because /hide/freeze is true.')
             self.set_state(GuideState.PAUSED)
             return
-        if self.goal_active:
-            self.get_logger().info('Guide goal already active; ignoring duplicate start.')
-            return
-
+        # Cancel any existing active goal to ensure a fresh start
+        if self.goal_handle is not None:
+            self.get_logger().info('Cancelling previous active goal before starting new one.')
+            self.cancel_active_goal()
         self.set_state(GuideState.GUIDE_READY)
         if not self.nav_client.wait_for_server(timeout_sec=2.0):
             self.get_logger().error('Nav2 navigate_to_pose action server is not ready.')
