@@ -16,18 +16,20 @@ def generate_launch_description():
     # Set resource path for Gazebo Sim to find meshes (model://storagy/...)
     install_share_path = os.path.dirname(pkg_storagy)
     models_path = os.path.join(pkg_storagy, 'models')
-    
+    worlds_path = os.path.join(pkg_storagy, 'worlds')
+
     # Update GZ_SIM_RESOURCE_PATH / IGN_GAZEBO_RESOURCE_PATH
-    gz_resource_path = install_share_path + os.pathsep + models_path
+    gz_resource_path = (
+        install_share_path + os.pathsep + models_path + os.pathsep + worlds_path)
     if 'GZ_SIM_RESOURCE_PATH' in os.environ:
         gz_resource_path = os.environ['GZ_SIM_RESOURCE_PATH'] + os.pathsep + gz_resource_path
 
-    ign_resource_path = install_share_path + os.pathsep + models_path
+    ign_resource_path = install_share_path + os.pathsep + models_path + os.pathsep + worlds_path
     if 'IGN_GAZEBO_RESOURCE_PATH' in os.environ:
         ign_resource_path = os.environ['IGN_GAZEBO_RESOURCE_PATH'] + os.pathsep + ign_resource_path
 
-    # 2. Include Gazebo Sim Server (running warehouse world)
-    world_sdf_path = os.path.join(pkg_storagy, 'worlds', '1206_2.sdf')
+    # 2. Include Gazebo Sim Server (2026 AMR 교실 월드)
+    world_sdf_path = os.path.join(pkg_storagy, 'worlds', '2026_amr.sdf')
     gazebo_server = IncludeLaunchDescription(
         PythonLaunchDescriptionSource(
             os.path.join(pkg_ros_gz_sim, 'launch', 'gz_sim.launch.py')
@@ -58,9 +60,9 @@ def generate_launch_description():
         arguments=[
             '-name', 'storagy',
             '-topic', 'robot_description',
-            '-x', '0.0',
-            '-y', '0.0',
-            '-z', '0.1'
+            '-x', '-3.92',
+            '-y', '0.12',
+            '-z', '0.1',
         ],
         output='screen'
     )

@@ -59,8 +59,8 @@ def generate_launch_description():
 
     nav2_launch_file_dir = os.path.join(get_package_share_directory(MOBILE_MODEL), 'launch', 'navigation2')
 
-    initial_pose_x = LaunchConfiguration('initial_pose_x', default='0.0')
-    initial_pose_y = LaunchConfiguration('initial_pose_y', default='0.0')
+    initial_pose_x = LaunchConfiguration('initial_pose_x', default='-3.92')
+    initial_pose_y = LaunchConfiguration('initial_pose_y', default='0.12')
     initial_pose_z = LaunchConfiguration('initial_pose_z', default='0.0')
     initial_pose_yaw = LaunchConfiguration('initial_pose_yaw', default='0.0')
     default_nav_to_pose_bt_xml = LaunchConfiguration('default_nav_to_pose_bt_xml', default = default_nav_to_pose_bt_xml_dir)
@@ -84,12 +84,12 @@ def generate_launch_description():
 
         DeclareLaunchArgument(
             'initial_pose_x',
-            default_value='0.0',
+            default_value='-3.92',
             description='X coordinate of the initial robot pose in the map frame"'),
 
         DeclareLaunchArgument(
             'initial_pose_y',
-            default_value='0.0',
+            default_value='0.12',
             description='Y coordinate of the initial robot pose in the map frame"'),
 
         DeclareLaunchArgument(

@@ -1,0 +1,29 @@
+services:
+  storagy-sim:
+    # Prebuilt image on Docker Hub. `docker compose up` uses it if it exists
+    # locally / can be pulled; run `docker compose build` to build from
+    # source instead.
+    image: bluephysi01/storagy-simulation-system-docker:latest
+    build: .
+    container_name: storagy-sim
+    # Loads OPENAI_API_KEY from the local .env file (copy it from .env.example).
+    # Without it the simulation still runs; only the LLM agent won't work.
+    env_file:
+      - path: .env
+        required: false
+    environment:
+      - LIBGL_ALWAYS_SOFTWARE=1   # software rendering, no GPU required
+    ports:
+      - "6080:80"     # noVNC desktop  -> open http://localhost:6080 (Gazebo/RViz)
+      - "8090:8090"   # web dashboard  -> open http://localhost:8090
+    volumes:
+      # Live-mount the source code so you can edit it on the host.
+      #  - Python scripts under src/storagy/scripts take effect on restart.
+      #  - For everything else (launch files, worlds, maps, messages), run:
+      #      docker compose exec storagy-sim rebuild_ws.sh
+      #    then restart the simulation.
+      - ./src:/opt/storagy_sim_origin_ws/src
+    shm_size: "1gb"   # Gazebo/RViz need more shared memory than the 64MB default
+    security_opt:
+      - seccomp:unconfined
+    restart: unless-stopped

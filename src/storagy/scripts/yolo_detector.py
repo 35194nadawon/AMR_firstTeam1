@@ -55,20 +55,20 @@ class YoloDetectorNode(Node):
 
         self.bridge = CvBridge()
 
-        # QoS for sensor data
-        sensor_qos = QoSProfile(
-            reliability=ReliabilityPolicy.BEST_EFFORT,
+        # Match ros_gz_bridge camera (RELIABLE) and web_dashboard subscriber.
+        image_qos = QoSProfile(
+            reliability=ReliabilityPolicy.RELIABLE,
             history=HistoryPolicy.KEEP_LAST,
             depth=1,
         )
 
         # Subscriber
         self.sub = self.create_subscription(
-            Image, input_topic, self.image_callback, sensor_qos
+            Image, input_topic, self.image_callback, image_qos
         )
 
         # Publisher
-        self.pub = self.create_publisher(Image, output_topic, 10)
+        self.pub = self.create_publisher(Image, output_topic, image_qos)
         self.count_pub = self.create_publisher(Int32, "/yolo/person_count", 10)
 
         self.get_logger().info(
