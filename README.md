@@ -141,3 +141,13 @@ docker compose restart
 
 ## 실제 로봇 접속 (참고)
 실하드웨어(storagy) 연동 메모는 [README_realrobot.md](README_realrobot.md) 참고.
+
+## 공통 개발 문서
+
+`main`에서 관리하던 팀 공통 문서는 아래 파일을 기준으로 계속 참고합니다.
+
+- [프로젝트 기획](docs/PROJECT_PLAN.md)
+- [아키텍처](docs/ARCHITECTURE.md)
+- [ROS 인터페이스](docs/ROS_INTERFACES.md)
+- [개발 워크플로우](docs/DEVELOPMENT_WORKFLOW.md)
+- [이슈 백로그](docs/ISSUE_BACKLOG.md)
