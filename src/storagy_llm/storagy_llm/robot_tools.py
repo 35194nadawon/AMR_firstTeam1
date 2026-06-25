@@ -362,6 +362,27 @@ class ToolSet(Node):
         self._goal_future.add_done_callback(goal_response_callback)
 
     def move_to_location(self, place: str):
+        place = str(place).strip().lower().replace(" ", "")
+        aliases = {
+            "t1": "table1",
+            "1": "table1",
+            "1번": "table1",
+            "테이블1": "table1",
+            "t2": "table2",
+            "2": "table2",
+            "2번": "table2",
+            "테이블2": "table2",
+            "t3": "table3",
+            "3": "table3",
+            "3번": "table3",
+            "테이블3": "table3",
+            "t4": "table4",
+            "4": "table4",
+            "4번": "table4",
+            "테이블4": "table4",
+        }
+        place = aliases.get(place, place)
+
         if place not in self.places:
             return f"[ERR] Unknown place: {place}"
 

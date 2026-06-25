@@ -8,6 +8,7 @@ from ament_index_python.packages import get_package_share_directory
 import yaml
 import cv2
 import base64
+import re
 from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 from geometry_msgs.msg import PoseStamped
@@ -24,6 +25,42 @@ load_dotenv(dotenv_path=env_file_path)
 prompt_file = Path(llm_dir) / 'params/prompt.yaml'
 with open(prompt_file, 'r', encoding='utf-8') as f:
     prompt_data = yaml.safe_load(f)    
+
+
+TABLE_ALIASES = {
+    "table1": [
+        r"\bt\s*1\b", r"\btable\s*1\b", r"\btable1\b",
+        "t1", "T1", "1번", "1 번", "테이블1", "테이블 1",
+        "첫번째", "첫 번째", "일번",
+    ],
+    "table2": [
+        r"\bt\s*2\b", r"\btable\s*2\b", r"\btable2\b",
+        "t2", "T2", "2번", "2 번", "테이블2", "테이블 2",
+        "두번째", "두 번째", "이번",
+    ],
+    "table3": [
+        r"\bt\s*3\b", r"\btable\s*3\b", r"\btable3\b",
+        "t3", "T3", "3번", "3 번", "테이블3", "테이블 3",
+        "세번째", "세 번째", "삼번",
+    ],
+    "table4": [
+        r"\bt\s*4\b", r"\btable\s*4\b", r"\btable4\b",
+        "t4", "T4", "4번", "4 번", "테이블4", "테이블 4",
+        "네번째", "네 번째", "사번",
+    ],
+}
+
+NON_NAVIGATION_KEYWORDS = (
+    "앞에", "보여", "카메라", "사진", "현재 위치", "어디", "목록",
+    "취소", "멈춰", "정지", "그만", "배회", "속도", "회전",
+)
+
+NAVIGATION_KEYWORDS = (
+    "안내", "이동", "가", "데려", "목적", "도착", "테이블", "자리",
+    "손님", "시각장애", "준비", "출발", "guide", "go", "move",
+    "navigate", "start", "table",
+)
+
 
 class AgentLLM(Node):
     def __init__(self):
@@ -63,6 +100,41 @@ class AgentLLM(Node):
         
         self.get_logger().info("agent service start")
 
+    def destination_from_prompt(self, query: str):
+        text = (query or "").strip()
+        lowered = text.lower()
+
+        for place, aliases in TABLE_ALIASES.items():
+            for alias in aliases:
+                if alias.startswith(r"\b"):
+                    if re.search(alias, lowered):
+                        return place
+                elif alias in text or alias.lower() in lowered:
+                    return place
+
+        if any(keyword in text or keyword in lowered
+               for keyword in NON_NAVIGATION_KEYWORDS):
+            return None
+
+        if any(keyword in text or keyword in lowered
+               for keyword in NAVIGATION_KEYWORDS):
+            return "table4"
+
+        return "table4"
+
+    def route_destination_prompt(self, query: str):
+        destination = self.destination_from_prompt(query)
+        if destination is None:
+            return None
+
+        result = self.tool_set.move_to_location(destination)
+        self.get_logger().info(
+            f"Destination prompt routed to {destination}: {result}")
+        return (
+            f"{destination}로 안내를 시작합니다. "
+            "목적지가 명확하지 않으면 기본 목적지는 table4입니다."
+        )
+
     def image_callback(self, msg: Image):
         self.latest_image_msg = msg
 
@@ -98,6 +170,10 @@ class AgentLLM(Node):
             return f"OpenAI API 호출 중 오류가 발생했습니다: {e}"
 
     def process_query(self, query):
+        routed = self.route_destination_prompt(query)
+        if routed is not None:
+            return routed
+
         # session_id 기반으로 대화 히스토리를 유지합니다.
         config = {"configurable": {"thread_id": "storagy"}}
         result = self.agent_graph.invoke(
