@@ -202,7 +202,7 @@ global_costmap:
       global_frame: map
       inflation_layer:
         cost_scaling_factor: 2.5
-        inflation_radius: 1.5
+        inflation_radius: 0.45
         plugin: nav2_costmap_2d::InflationLayer
       obstacle_layer:
         enabled: true
@@ -241,7 +241,7 @@ local_costmap:
       height: 3
       inflation_layer:
         cost_scaling_factor: 2.5
-        inflation_radius: 1.5
+        inflation_radius: 0.45
         plugin: nav2_costmap_2d::InflationLayer
       obstacle_layer:
         enabled: true
