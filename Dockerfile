@@ -57,7 +57,7 @@ RUN mkdir -p ${WS}/src/storagy_llm/storagy_llm \
 
 RUN source /opt/ros/humble/setup.bash \
  && colcon build --symlink-install \
-        --packages-select storagy_interfaces storagy storagy_llm storagy_hide \
+        --packages-select storagy_interfaces storagy storagy_llm storagy_hide storagy_guide \
  && chmod -R a+rX ${WS}
 
 # ---------------------------------------------------------------------------

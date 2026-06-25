@@ -18,7 +18,7 @@ cd /opt/storagy_sim_origin_ws
     || printf 'OPENAI_API_KEY=\n' > src/storagy_llm/storagy_llm/.env
 
 colcon build --symlink-install \
-    --packages-select storagy_interfaces storagy storagy_llm storagy_hide
+    --packages-select storagy_interfaces storagy storagy_llm storagy_hide storagy_guide
 
 echo
 echo "[rebuild_ws] done — restart the simulation to pick up the changes."
