@@ -62,6 +62,7 @@ NAVIGATION_KEYWORDS = (
 )
 
 START_SIGNAL_VALUES = ("1", "true", "ready", "start", "go", "출발", "준비")
+START_GUIDE_TOKEN = "__start_guide__"
 
 
 class AgentLLM(Node):
@@ -108,7 +109,7 @@ class AgentLLM(Node):
         compact = re.sub(r"\s+", "", lowered)
 
         if compact in START_SIGNAL_VALUES:
-            return "table4"
+            return START_GUIDE_TOKEN
 
         for place, aliases in TABLE_ALIASES.items():
             for alias in aliases:
@@ -132,13 +133,17 @@ class AgentLLM(Node):
         destination = self.destination_from_prompt(query)
         if destination is None:
             return None
+        if destination == START_GUIDE_TOKEN:
+            result = self.tool_set.start_guide()
+            self.get_logger().info(f"Start prompt routed to guide: {result}")
+            return "출발 신호를 확인했습니다. 설정된 목적지로 안내 주행을 시작합니다."
 
         result = self.tool_set.move_to_location(destination)
         self.get_logger().info(
             f"Destination prompt routed to {destination}: {result}")
         return (
-            f"{destination}로 안내를 시작합니다. "
-            "목적지가 명확하지 않으면 기본 목적지는 table4입니다."
+            f"{destination} 목적지를 설정했습니다. "
+            "준비가 끝나면 '1' 또는 '출발'이라고 입력해 주세요."
         )
 
     def image_callback(self, msg: Image):

@@ -34,6 +34,7 @@ setup(
             'agent_service = storagy_llm.agent_service:main',
             'agent_client = storagy_llm.agent_client:main',
             'web_dashboard = storagy_llm.web_dashboard:main',
+            'guide_controller = storagy_llm.guide_controller:main',
         ],
     },
 )

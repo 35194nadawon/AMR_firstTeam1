@@ -10,6 +10,8 @@ from rclpy.qos import QoSProfile, DurabilityPolicy, ReliabilityPolicy
 from nav2_msgs.action import NavigateToPose
 from geometry_msgs.msg import PoseStamped, Twist
 from std_msgs.msg import Bool, String
+from rcl_interfaces.srv import SetParameters
+from rcl_interfaces.msg import Parameter
 from langchain_core.tools import StructuredTool
 from typing import List
 
@@ -29,6 +31,11 @@ def create_tools(tool_set) -> List[StructuredTool]:
             "name": "move_to_location",
             "description": "사용자가 특정 장소로 이동하라고 말했을 때 사용합니다.",
             "func": lambda place: tool_set.move_to_location(place)
+        },
+        {
+            "name": "start_guide",
+            "description": "사용자가 준비 완료, 출발, 시작, 1 같은 시작 신호를 보냈을 때 안내 주행을 시작합니다.",
+            "func": lambda: tool_set.start_guide()
         },
         {
             "name": "explain_front_camera",
@@ -64,6 +71,11 @@ def create_tools(tool_set) -> List[StructuredTool]:
             "name": "set_speed",
             "description": "텔레옵 속도를 설정하거나 조회합니다. linear_mps=직진 속도(m/s, 0.05~0.7), angular_rps=회전 속도(rad/s, 0.2~1.8). 바꾸지 않을 값은 0을 전달하세요 (둘 다 0이면 현재 속도 조회). '더 빠르게/느리게' 요청 시 먼저 조회한 뒤 적절히 가감해 다시 호출하세요.",
             "func": lambda linear_mps, angular_rps: tool_set.set_speed(linear_mps, angular_rps)
+        },
+        {
+            "name": "complete_mission",
+            "description": "사용자가 안내 완료, 서비스 완료, 복귀를 말했을 때 안내 임무를 종료하고 숨는팀 복귀 신호를 보냅니다.",
+            "func": lambda: tool_set.complete_mission()
         },
     ]
 
@@ -106,6 +118,17 @@ class ToolSet(Node):
         self.event_pub = self.create_publisher(String, '/robot_events', 10)
 
         self.goal_handle = None
+        self.guide_target_set = False
+        self.param_client = self.create_client(
+            SetParameters, '/guide_nav_node/set_parameters')
+        self.person_arrived_pub = self.create_publisher(
+            Bool, '/guide/person_arrived', 10)
+        self.guide_command_pub = self.create_publisher(
+            String, '/guide/command', 10)
+        self.takeover_pub = self.create_publisher(
+            Bool, '/hide/takeover_start', 10)
+        self.mission_done_pub = self.create_publisher(
+            Bool, '/hide/mission_done', 10)
 
     def publish_llm_active(self, active: bool):
         msg = Bool()
@@ -139,6 +162,7 @@ class ToolSet(Node):
                 self.get_logger().warn(f"[TELEOP] Failed to cancel LLM goal: {e}")
             self.goal_handle = None
             self.publish_llm_active(False)
+        self.guide_command_pub.publish(String(data='stop'))
         self.cmd_pub.publish(Twist())
         time.sleep(0.5)  # give Nav2 a moment to release cmd_vel
 
@@ -387,9 +411,38 @@ class ToolSet(Node):
             return f"[ERR] Unknown place: {place}"
 
         x, y, qz, qw = self.places[place]
-        self.navigate_to_pose(x, y, qz, qw)
-        self.publish_event(f"'{place}'(으)로 이동 명령")
-        return f"[NAV] Heading to {place}"
+        yaw = 2.0 * math.atan2(qz, qw)
+
+        req = SetParameters.Request()
+        for name, value in (
+            ('target_x', float(x)),
+            ('target_y', float(y)),
+            ('target_yaw', float(yaw)),
+        ):
+            param = Parameter()
+            param.name = name
+            param.value.type = 3
+            param.value.double_value = value
+            req.parameters.append(param)
+
+        self.param_client.call_async(req)
+        self.guide_target_set = True
+        self.publish_event(
+            f"Guide target set: {place} (x={x:.2f}, y={y:.2f}, yaw={yaw:.2f})")
+        return (
+            f"[GUIDE] Target set to {place}. "
+            "Send start signal '1' or '출발' to begin guiding."
+        )
+
+    def start_guide(self) -> str:
+        if not self.guide_target_set:
+            self.move_to_location('table4')
+        self.publish_llm_active(True)
+        self.takeover_pub.publish(Bool(data=True))
+        self.person_arrived_pub.publish(Bool(data=True))
+        self.guide_command_pub.publish(String(data='start_guide'))
+        self.publish_event("Guide start signal received")
+        return "[GUIDE] Guide navigation started."
 
     def cancel_navigation(self) -> str:
         stopped = []
@@ -402,6 +455,8 @@ class ToolSet(Node):
             self.goal_handle = None
             self.publish_llm_active(False)
             stopped.append("네비게이션")
+        self.guide_command_pub.publish(String(data='stop'))
+        stopped.append("안내 주행")
         # Publish zero velocity to stop the robot
         stop_msg = Twist()
         self.cmd_pub.publish(stop_msg)
@@ -409,3 +464,10 @@ class ToolSet(Node):
             return "[WARN] 진행 중인 이동 명령이 없습니다. 로봇은 정지 상태입니다."
         self.publish_event("정지 명령: " + ", ".join(stopped) + " 중지")
         return f"[NAV] {', '.join(stopped)}을(를) 중지하고 로봇을 정지시켰습니다."
+
+    def complete_mission(self) -> str:
+        self._stop_all_motion()
+        self.publish_llm_active(False)
+        self.mission_done_pub.publish(Bool(data=True))
+        self.publish_event("Guide mission complete; hide return requested")
+        return "[MISSION] Guide mission complete. Returning control to hide team."
