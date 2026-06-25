@@ -14,7 +14,7 @@ hide_human_perception:
   ros__parameters:
     fov_deg: 120.0              # 사람 전방 진입금지 부채꼴 각도
     zone_radius_m: 1.0          # 부채꼴 반경
-    yolo_conf: 0.5              # YOLO confidence 임계값
+    yolo_conf: 0.7              # YOLO confidence 임계값
     model: yolov8n.pt           # 워크스페이스 루트의 가중치
 
 hide_dynamic_costmap:

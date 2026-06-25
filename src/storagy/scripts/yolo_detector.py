@@ -39,7 +39,7 @@ class YoloDetectorNode(Node):
 
         # Parameters
         self.declare_parameter("model", "yolov8n.pt")
-        self.declare_parameter("confidence", 0.5)
+        self.declare_parameter("confidence", 0.7)
         self.declare_parameter("input_topic", "/camera/color/image_raw")
         self.declare_parameter("output_topic", "/yolo/detected_image")
 

@@ -59,6 +59,9 @@ CHAIR_GAP = 0.12
 CHAIR_SKIP_SIDES = {'t1': {'nx'}}
 
 # T2/T3 동쪽 통로를 북↔남으로 배회 (Nav2 /scan 장애물로 회피) — waypoints는 layout에서 계산
+# YOLO 오탐·배회 actor 간섭을 줄이려면 기본 off. 필요 시 --walking-person
+ENABLE_WALKING_PERSON = False
+
 WALKING_PERSON = {
     'name': 'walking_person',
     'skin': 'walk.dae',
@@ -688,7 +691,7 @@ def generate_tactile_path(layout: dict) -> str:
     return '\n'.join(sdf_parts)
 
 
-def generate_sdf(layout: dict) -> str:
+def generate_sdf(layout: dict, *, enable_walking_person: bool = ENABLE_WALKING_PERSON) -> str:
     ex, ey, ez = layout['base']['pose']
     door = layout['entry_door']
     hide = layout['hideout']
@@ -843,7 +846,7 @@ def generate_sdf(layout: dict) -> str:
       <pose>{hide['x'] + 0.17:.2f} {hide['y']} 0.35 0 1.5708 0</pose>
     </include>
 {tactile_xml}
-{walking_person_actor_sdf(layout)}
+{walking_person_actor_sdf(layout) if enable_walking_person else ''}
   </world>
 </sdf>
 """
@@ -948,6 +951,7 @@ def sync_gazebo_from_layout(
     map_path: Path = MAP_1206,
     sdf_path: Path = DEFAULT_SDF,
     apply_shifts: bool = True,
+    enable_walking_person: bool = ENABLE_WALKING_PERSON,
 ) -> int:
     """layout → Gazebo SDF + Nav2 PGM + points.yaml 전체 동기화."""
     if not layout_path.is_file():
@@ -969,7 +973,10 @@ def sync_gazebo_from_layout(
     layout_path.write_text(
         json.dumps(layout, indent=2, ensure_ascii=False) + '\n', encoding='utf-8',
     )
-    sdf_path.write_text(generate_sdf(layout), encoding='utf-8')
+    sdf_path.write_text(
+        generate_sdf(layout, enable_walking_person=enable_walking_person),
+        encoding='utf-8',
+    )
     walls = ensure_walls_base(img, layout)
     write_nav_map(walls, layout, map_path)
     sync_points_yaml(layout)
@@ -1056,10 +1063,18 @@ def main() -> int:
         '--sync-gazebo', action='store_true',
         help='layout → Gazebo SDF + Nav2 PGM + points (T1~T3 스폰 이격 shift 포함)',
     )
+    parser.add_argument(
+        '--walking-person', action='store_true',
+        help='Gazebo 배회 actor(walking_person) 포함 (기본: 제외)',
+    )
     args = parser.parse_args()
 
+    enable_walking = args.walking_person or ENABLE_WALKING_PERSON
+
     if args.sync_gazebo:
-        return sync_gazebo_from_layout(args.meta, args.map, args.sdf)
+        return sync_gazebo_from_layout(
+            args.meta, args.map, args.sdf, enable_walking_person=enable_walking,
+        )
 
     if args.from_layout:
         return sync_from_layout(args.meta, args.map)
@@ -1075,7 +1090,10 @@ def main() -> int:
     sync_points_yaml(layout)
     args.meta.parent.mkdir(parents=True, exist_ok=True)
     args.meta.write_text(json.dumps(layout, indent=2, ensure_ascii=False) + '\n', encoding='utf-8')
-    args.sdf.write_text(generate_sdf(layout), encoding='utf-8')
+    args.sdf.write_text(
+        generate_sdf(layout, enable_walking_person=enable_walking),
+        encoding='utf-8',
+    )
 
     run_dashboard_map()
 

@@ -945,58 +945,5 @@
       </link>
     </model>
 
-    <!-- 배회하는 사람 (로봇 라이다 → Nav2 장애물 회피) -->
-    <actor name="walking_person">
-      <link name="link">
-        <inertial>
-          <mass>1</mass>
-          <inertia>
-            <ixx>0.166667</ixx><ixy>0</ixy><ixz>0</ixz>
-            <iyy>0.166667</iyy><iyz>0</iyz><izz>0.166667</izz>
-          </inertia>
-        </inertial>
-        <collision name="collision">
-          <geometry><box><size>0.5 0.5 1.5</size></box></geometry>
-        </collision>
-        <self_collide>0</self_collide>
-        <kinematic>0</kinematic>
-        <gravity>1</gravity>
-      </link>
-      <skin>
-        <filename>walk.dae</filename>
-        <scale>1.0</scale>
-      </skin>
-      <animation name="walking">
-        <filename>walk.dae</filename>
-        <interpolate_x>true</interpolate_x>
-      </animation>
-      <script>
-        <loop>true</loop>
-        <delay_start>5.0</delay_start>
-        <auto_start>true</auto_start>
-        <trajectory id="0" type="walking">
-          <waypoint>
-            <time>0.0</time>
-            <pose>1.29 -2.04 0.875 0 0 1.5708</pose>
-          </waypoint>
-          <waypoint>
-            <time>35.0</time>
-            <pose>1.29 1.98 0.875 0 0 1.5708</pose>
-          </waypoint>
-          <waypoint>
-            <time>37.0</time>
-            <pose>1.29 1.98 0.875 0 0 -1.5708</pose>
-          </waypoint>
-          <waypoint>
-            <time>72.0</time>
-            <pose>1.29 -2.04 0.875 0 0 -1.5708</pose>
-          </waypoint>
-          <waypoint>
-            <time>74.0</time>
-            <pose>1.29 -2.04 0.875 0 0 1.5708</pose>
-          </waypoint>
-        </trajectory>
-      </script>
-    </actor>
   </world>
 </sdf>

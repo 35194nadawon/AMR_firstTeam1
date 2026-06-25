@@ -147,6 +147,7 @@ class ToolSet(Node):
             String, '/hide/state', self._on_hide_state, wander_qos)
 
         self.goal_handle = None
+        self.pending_place = None  # move_to_location → start_guide 2단계 이동
         # R1 / R4 integration with hide team
         self.takeover_pub = self.create_publisher(Bool, '/hide/takeover_start', 10)
         self.mission_done_pub = self.create_publisher(Bool, '/hide/mission_done', 10)
@@ -462,21 +463,19 @@ class ToolSet(Node):
         self._goal_future.add_done_callback(goal_response_callback)
 
     def start_guide(self) -> str:
-        # Publish LLM active
-        self.publish_llm_active(True)
-        # Wake up the hiding robot
-        wake_msg = Bool()
-        wake_msg.data = True
-        self.takeover_pub.publish(wake_msg)
-        self.publish_event("안내 시작: 숨는팀 WAKE 트리거 전송")
-        
-        # Publish person_arrived to guide_nav_node to start guiding
-        msg = Bool()
-        msg.data = True
-        self.person_arrived_pub.publish(msg)
-        
-        self.publish_event("시각장애인 출발 지시 감지 - 안내 주행 시작")
-        return "[GUIDE] 안내 주행을 시작합니다."
+        blocked = self._require_guide()
+        if blocked:
+            return blocked
+        if not self.pending_place:
+            return ("[NAV] 이동할 목적지가 설정되지 않았습니다. "
+                    "먼저 장소를 말씀해 주세요 (예: T2로 가줘).")
+
+        place = self.pending_place
+        x, y, qz, qw = self.places[place]
+        self.pending_place = None
+        self.publish_event(f"출발 지시 — {place}(x={x:.2f}, y={y:.2f})로 Nav2 주행 시작")
+        self.navigate_to_pose(x, y, qz, qw)
+        return f"[GUIDE] {place}(으)로 안내 주행을 시작합니다."
 
     def move_to_location(self, place: str):
         blocked = self._require_guide()
@@ -485,11 +484,14 @@ class ToolSet(Node):
         if place not in self.places:
             return f"[ERR] Unknown place: {place}"
 
+        self.pending_place = place
         x, y, qz, qw = self.places[place]
         # Calculate yaw from quaternion (qz, qw)
         yaw = 2.0 * math.atan2(qz, qw)
-        
-        # Set parameters on guide_nav_node asynchronously
+
+        # guide_nav_node가 떠 있으면 파라미터도 동기화 (full_bringup 미포함 시 무시)
+        if not self.param_client.service_is_ready():
+            self.get_logger().debug('guide_nav_node not running; pending_place only')
         req = SetParameters.Request()
         
         px = Parameter()
@@ -509,13 +511,24 @@ class ToolSet(Node):
         
         req.parameters = [px, py, pyaw]
         
-        self.publish_event(f"'{place}' (x={x:.2f}, y={y:.2f}, yaw={yaw:.2f})로 목적지 설정 명령 전송")
-        self.param_client.call_async(req)
+        self.publish_event(
+            f"'{place}' (x={x:.2f}, y={y:.2f}, yaw={yaw:.2f})로 목적지 설정 — 출발 대기")
+        if self.param_client.service_is_ready():
+            self.param_client.call_async(req)
         
         return f"[NAV] 목적지가 {place}(으)로 설정되었습니다. 준비 완료되면 출발하라고 말씀해주세요."
 
     def cancel_navigation(self) -> str:
+        self.pending_place = None
         stopped = []
+        if self.goal_handle is not None:
+            try:
+                self.goal_handle.cancel_goal_async()
+            except Exception as e:
+                self.get_logger().warn(f"[NAV] Failed to cancel goal: {e}")
+            self.goal_handle = None
+            self.publish_llm_active(False)
+            stopped.append("Nav2 주행")
         if self.wander_enabled:
             self.set_wander(False)
             stopped.append("랜덤 이동")

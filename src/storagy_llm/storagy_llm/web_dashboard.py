@@ -7,6 +7,7 @@ The rest of the system (simulation, wander BT, agent service) is untouched.
 """
 import json
 import math
+import socket
 import threading
 import time
 from pathlib import Path
@@ -125,10 +126,14 @@ class WebDashboard(Node):
         self.add_event(msg.data)
 
     def hide_state_callback(self, msg: String):
+        new_state = msg.data
+        log_change = False
         with self.lock:
-            if self.hide_state != msg.data:
-                self.add_event(f"숨는팀 상태 변경: {msg.data}")
-            self.hide_state = msg.data
+            if self.hide_state != new_state:
+                log_change = True
+            self.hide_state = new_state
+        if log_change:
+            self.add_event(f"숨는팀 상태 변경: {new_state}")
 
     def wander_callback(self, msg: Bool):
         with self.lock:
@@ -296,7 +301,24 @@ def create_app(node: WebDashboard) -> Flask:
     return app
 
 
+def _http_port_in_use(port: int) -> bool:
+    """8090이 이미 열려 있으면 중복 web_dashboard 실행으로 간주."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        sock.settimeout(0.3)
+        return sock.connect_ex(('127.0.0.1', port)) == 0
+
+
 def main(args=None):
+    if _http_port_in_use(HTTP_PORT):
+        print(
+            f'[web_dashboard] 포트 {HTTP_PORT}이(가) 이미 사용 중입니다. '
+            '중복 실행을 막기 위해 종료합니다. '
+            '기존 프로세스를 끈 뒤 다시 실행하세요: '
+            'pkill -f "storagy_llm/web_dashboard"',
+            flush=True,
+        )
+        raise SystemExit(1)
+
     rclpy.init(args=args)
     node = WebDashboard()
     executor = SingleThreadedExecutor()
