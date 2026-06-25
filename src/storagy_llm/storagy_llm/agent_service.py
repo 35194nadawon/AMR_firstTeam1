@@ -61,6 +61,8 @@ NAVIGATION_KEYWORDS = (
     "navigate", "start", "table",
 )
 
+START_SIGNAL_VALUES = ("1", "true", "ready", "start", "go", "출발", "준비")
+
 
 class AgentLLM(Node):
     def __init__(self):
@@ -103,6 +105,10 @@ class AgentLLM(Node):
     def destination_from_prompt(self, query: str):
         text = (query or "").strip()
         lowered = text.lower()
+        compact = re.sub(r"\s+", "", lowered)
+
+        if compact in START_SIGNAL_VALUES:
+            return "table4"
 
         for place, aliases in TABLE_ALIASES.items():
             for alias in aliases:
