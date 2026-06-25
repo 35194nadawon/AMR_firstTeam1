@@ -149,12 +149,15 @@ class AgentLLM(Node):
             return "출발 신호를 확인했습니다. 설정된 목적지로 안내 주행을 시작합니다."
 
         result = self.tool_set.move_to_location(destination)
+        if result.startswith("[ERR]") or result.startswith("[HIDE]"):
+            self.get_logger().warn(
+                f"Destination prompt failed for {destination}: {result}")
+            return result
+
+        start_result = self.tool_set.start_guide()
         self.get_logger().info(
-            f"Destination prompt routed to {destination}: {result}")
-        return (
-            f"{destination} 목적지를 설정했습니다. "
-            "준비가 끝나면 '1' 또는 '출발'이라고 입력해 주세요."
-        )
+            f"Destination prompt routed to {destination}: {result}; {start_result}")
+        return f"{destination} 목적지를 설정하고 안내 주행을 시작합니다."
 
     def image_callback(self, msg: Image):
         self.latest_image_msg = msg
