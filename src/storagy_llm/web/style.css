@@ -254,10 +254,9 @@ h1 {
   #chat-log { height: 240px; }
 }
 
-/* ---------- Docent Mode (Premium Styling) ---------- */
+/* ---------- Docent Mode (GUIDE 상태 — 헤더만 강조, 지도 배경 유지) ---------- */
 body.docent-mode {
-  background: radial-gradient(circle at top left, #1c1d22, #0d0e12);
-  transition: background 0.5s ease;
+  background: var(--bg);
 }
 .frame.docent-mode {
   border-top: 4px solid var(--accent);

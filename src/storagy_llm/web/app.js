@@ -1,4 +1,4 @@
-﻿'use strict';
+'use strict';
 
 /* ---- map calibration: pgm(1206_sim_1) <-> topview(1206_top.png) ----
  * map.yaml: resolution 0.05 m/px, origin [-5, -3.8], pgm 200x150 px
@@ -121,50 +121,50 @@ function draw() {
 /* ---------- badges ---------- */
 function setConn(ok) {
   connBadge.className = 'badge ' + (ok ? 'on' : 'off');
-  connBadge.innerHTML = '<span class="dot"></span>' + (ok ? '?쒕쾭 ?곌껐?? : '?쒕쾭 ?곌껐 ?딄?');
+  connBadge.innerHTML = '<span class="dot"></span>' + (ok ? '서버 연결됨' : '서버 연결 끊김');
 }
 
 function setNav(navigating) {
   navBadge.className = 'badge ' + (navigating ? 'moving' : 'idle');
-  navBadge.innerHTML = '<span class="dot"></span>' + (navigating ? '?대룞 以? : '?湲?以?);
+  navBadge.innerHTML = '<span class="dot"></span>' + (navigating ? '이동 중' : '대기 중');
 }
 
 function setPeople(count) {
   if (count === null || count === undefined) {
     peopleBadge.className = 'badge idle';
-    peopleBadge.textContent = '?뫀 媛먯? 爰쇱쭚';
+    peopleBadge.textContent = '👤 감지 꺼짐';
   } else if (count > 0) {
     peopleBadge.className = 'badge alert';
-    peopleBadge.textContent = `?뫀 ?щ엺 ${count}紐?媛먯?`;
+    peopleBadge.textContent = `👤 사람 ${count}명 감지`;
   } else {
     peopleBadge.className = 'badge idle';
-    peopleBadge.textContent = '?뫀 ?щ엺 ?놁쓬';
+    peopleBadge.textContent = '👤 사람 없음';
   }
 }
 
 function setWander(enabled) {
   wanderBadge.className = 'badge ' + (enabled ? 'on' : 'idle');
-  wanderBadge.innerHTML = '<span class="dot"></span>' + (enabled ? '?쒕뜡 ?대룞 以? : '?쒕뜡 爰쇱쭚');
+  wanderBadge.innerHTML = '<span class="dot"></span>' + (enabled ? '랜덤 이동 중' : '랜덤 꺼짐');
 }
 
 function setHideState(hideState) {
   if (!hideBadge) return;
   const isDocent = (hideState === 'WAKE' || hideState === 'GUIDE');
-
+  
   if (hideState === 'FREEZE') {
     hideBadge.className = 'badge idle';
-    hideBadge.innerHTML = '<span class="dot"></span>?꾩옣 ?湲?以?;
+    hideBadge.innerHTML = '<span class="dot"></span>위장 대기 중';
   } else if (isDocent) {
     hideBadge.className = 'badge alert';
-    hideBadge.innerHTML = '<span class="dot"></span>?꾩뒯???쒖꽦';
+    hideBadge.innerHTML = '<span class="dot"></span>도슨트 활성';
   } else if (hideState === 'RETURN' || hideState === 'DOCK') {
     hideBadge.className = 'badge moving';
-    hideBadge.innerHTML = '<span class="dot"></span>蹂듦? ?湲?以?;
+    hideBadge.innerHTML = '<span class="dot"></span>복귀 대기 중';
   } else {
     hideBadge.className = 'badge idle';
     hideBadge.innerHTML = '<span class="dot"></span>' + hideState;
   }
-
+  
   document.body.classList.toggle('docent-mode', isDocent);
   const frame = document.querySelector('.frame');
   if (frame) frame.classList.toggle('docent-mode', isDocent);
@@ -237,7 +237,7 @@ chatForm.addEventListener('submit', async (ev) => {
   chatInput.value = '';
   chatInput.disabled = true;
   chatSend.disabled = true;
-  const typing = appendMsg('bot typing', '?묐떟??湲곕떎由щ뒗 以?);
+  const typing = appendMsg('bot typing', '응답을 기다리는 중');
 
   try {
     const res = await fetch('/api/chat', {
@@ -249,7 +249,7 @@ chatForm.addEventListener('submit', async (ev) => {
     typing.querySelector('.bubble').textContent = data.answer;
   } catch (e) {
     typing.querySelector('.bubble').textContent =
-      '?쒕쾭? ?듭떊?????놁뒿?덈떎. ??쒕낫???몃뱶媛 ?ㅽ뻾 以묒씤吏 ?뺤씤??二쇱꽭??';
+      '서버와 통신할 수 없습니다. 대시보드 노드가 실행 중인지 확인해 주세요.';
   } finally {
     typing.classList.remove('typing');
     chatInput.disabled = false;
@@ -268,18 +268,18 @@ connectStream();
 const serviceDoneBtn = document.getElementById('btn-service-done');
 if (serviceDoneBtn) {
   serviceDoneBtn.addEventListener('click', async () => {
-    appendMsg('user', '?쒕퉬???꾨즺 (硫붾돱???섎졊 ?꾨즺)');
-    const typing = appendMsg('bot typing', '?묐떟??湲곕떎由щ뒗 以?);
+    appendMsg('user', '서비스 완료 (메뉴판 수령 완료)');
+    const typing = appendMsg('bot typing', '응답을 기다리는 중');
     try {
       const res = await fetch('/api/chat', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question: '?쒕퉬???꾨즺' }),
+        body: JSON.stringify({ question: '서비스 완료' }),
       });
       const data = await res.json();
       typing.querySelector('.bubble').textContent = data.answer;
     } catch (e) {
-      typing.querySelector('.bubble').textContent = '?쒕쾭? ?듭떊?????놁뒿?덈떎.';
+      typing.querySelector('.bubble').textContent = '서버와 통신할 수 없습니다.';
     } finally {
       typing.classList.remove('typing');
     }

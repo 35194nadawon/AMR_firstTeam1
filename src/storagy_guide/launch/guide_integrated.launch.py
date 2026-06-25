@@ -24,9 +24,9 @@ def generate_launch_description():
         DeclareLaunchArgument('params_file', default_value=default_params),
         DeclareLaunchArgument('use_sim_time', default_value='true'),
         DeclareLaunchArgument('demo_person_arrived', default_value='false'),
-        DeclareLaunchArgument('target_x', default_value='1.0'),
-        DeclareLaunchArgument('target_y', default_value='0.0'),
-        DeclareLaunchArgument('target_yaw', default_value='0.0'),
+        DeclareLaunchArgument('target_x', default_value='3.84'),
+        DeclareLaunchArgument('target_y', default_value='-0.5'),
+        DeclareLaunchArgument('target_yaw', default_value='3.14159'),
 
         # 1. guide_nav_node (FSM Coordinator)
         Node(

@@ -1,4 +1,5 @@
 import math
+import threading
 import time
 import rclpy
 import tf2_ros
@@ -452,37 +453,12 @@ class ToolSet(Node):
 
         self._goal_future.add_done_callback(goal_response_callback)
 
-    def move_to_location(self, place: str):
-        blocked = self._require_guide()
-        if blocked:
-            return blocked
-        place = str(place).strip().lower().replace(" ", "")
-        aliases = {
-            "t1": "table1",
-            "1": "table1",
-            "1번": "table1",
-            "테이블1": "table1",
-            "t2": "table2",
-            "2": "table2",
-            "2번": "table2",
-            "테이블2": "table2",
-            "t3": "table3",
-            "3": "table3",
-            "3번": "table3",
-            "테이블3": "table3",
-            "t4": "table4",
-            "4": "table4",
-            "4번": "table4",
-            "테이블4": "table4",
-        }
-        place = aliases.get(place, place)
-
-        if place not in self.places:
-            return f"[ERR] Unknown place: {place}"
-
-        x, y, qz, qw = self.places[place]
-        yaw = 2.0 * math.atan2(qz, qw)
-
+    def _set_guide_target(self, x: float, y: float, yaw: float) -> bool:
+        """guide_nav_node 파라미터 동기 설정 (출발 전 목표 반영 보장)."""
+        if not self.param_client.wait_for_service(timeout_sec=2.0):
+            self.get_logger().warn(
+                '[GUIDE] guide_nav_node/set_parameters unavailable')
+            return False
         req = SetParameters.Request()
         for name, value in (
             ('target_x', float(x)),
@@ -491,11 +467,43 @@ class ToolSet(Node):
         ):
             param = Parameter()
             param.name = name
-            param.value.type = 3
+            param.value.type = 3  # PARAMETER_DOUBLE
             param.value.double_value = value
             req.parameters.append(param)
+        future = self.param_client.call_async(req)
+        rclpy.spin_until_future_complete(self, future, timeout_sec=5.0)
+        if not future.done() or future.result() is None:
+            return False
+        return all(r.successful for r in future.result().results)
 
-        self.param_client.call_async(req)
+    def _resolve_place(self, place: str) -> str:
+        place = str(place).strip().lower().replace(' ', '')
+        aliases = {
+            't1': 'table1', '1': 'table1', '1번': 'table1', '테이블1': 'table1',
+            't2': 'table2', '2': 'table2', '2번': 'table2', '테이블2': 'table2',
+            't3': 'table3', '3': 'table3', '3번': 'table3', '테이블3': 'table3',
+            't4': 'table4', '4': 'table4', '4번': 'table4', '테이블4': 'table4',
+        }
+        return aliases.get(place, place)
+
+    def move_to_location(self, place: str):
+        blocked = self._require_guide()
+        if blocked:
+            return blocked
+        place = self._resolve_place(place)
+
+        if place not in self.places:
+            return f"[ERR] Unknown place: {place}"
+
+        x, y, qz, qw = self.places[place]
+        yaw = 2.0 * math.atan2(qz, qw)
+
+        if not self._set_guide_target(x, y, yaw):
+            return (
+                f"[ERR] guide_nav_node에 {place} 목표를 설정하지 못했습니다. "
+                "guide_nav_node가 실행 중인지 확인해 주세요."
+            )
+
         self.guide_target_set = True
         self.publish_event(
             f"Guide target set: {place} (x={x:.2f}, y={y:.2f}, yaw={yaw:.2f})")
@@ -505,8 +513,13 @@ class ToolSet(Node):
         )
 
     def start_guide(self) -> str:
+        blocked = self._require_guide()
+        if blocked:
+            return blocked
         if not self.guide_target_set:
-            self.move_to_location('table4')
+            result = self.move_to_location('table4')
+            if result.startswith('[ERR]') or result.startswith('[HIDE]'):
+                return result
         self.publish_llm_active(True)
         self.takeover_pub.publish(Bool(data=True))
         self.person_arrived_pub.publish(Bool(data=True))
