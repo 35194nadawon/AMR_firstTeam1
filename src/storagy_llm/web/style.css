@@ -253,3 +253,29 @@ h1 {
   h1 { font-size: 20px; }
   #chat-log { height: 240px; }
 }
+
+/* ---------- Docent Mode (Premium Styling) ---------- */
+body.docent-mode {
+  background: radial-gradient(circle at top left, #1c1d22, #0d0e12);
+  transition: background 0.5s ease;
+}
+.frame.docent-mode {
+  border-top: 4px solid var(--accent);
+  box-shadow: 0 0 20px rgba(217, 119, 66, 0.15);
+  transition: border 0.3s ease, box-shadow 0.3s ease;
+}
+.frame.docent-mode header {
+  background: linear-gradient(90deg, rgba(217, 119, 66, 0.1) 0%, rgba(13, 14, 18, 0) 100%);
+}
+.frame.docent-mode header h1::after {
+  content: " 🎧 도슨트 모드";
+  font-size: 14px;
+  color: var(--accent);
+  vertical-align: middle;
+  background: rgba(217, 119, 66, 0.15);
+  padding: 2px 8px;
+  border-radius: 4px;
+  margin-left: 8px;
+  font-family: 'Pretendard', sans-serif;
+  font-weight: 600;
+}

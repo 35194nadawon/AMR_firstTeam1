@@ -23,6 +23,7 @@ const navBadge = document.getElementById('nav-badge');
 const wanderBadge = document.getElementById('wander-badge');
 const cameraWrap = document.getElementById('camera-wrap');
 const peopleBadge = document.getElementById('people-badge');
+const hideBadge = document.getElementById('hide-badge');
 const eventLog = document.getElementById('event-log');
 const chatLog = document.getElementById('chat-log');
 const chatForm = document.getElementById('chat-form');
@@ -146,6 +147,29 @@ function setWander(enabled) {
   wanderBadge.innerHTML = '<span class="dot"></span>' + (enabled ? '랜덤 이동 중' : '랜덤 꺼짐');
 }
 
+function setHideState(hideState) {
+  if (!hideBadge) return;
+  const isDocent = (hideState === 'WAKE' || hideState === 'GUIDE');
+  
+  if (hideState === 'FREEZE') {
+    hideBadge.className = 'badge idle';
+    hideBadge.innerHTML = '<span class="dot"></span>위장 대기 중';
+  } else if (isDocent) {
+    hideBadge.className = 'badge alert';
+    hideBadge.innerHTML = '<span class="dot"></span>도슨트 활성';
+  } else if (hideState === 'RETURN' || hideState === 'DOCK') {
+    hideBadge.className = 'badge moving';
+    hideBadge.innerHTML = '<span class="dot"></span>복귀 대기 중';
+  } else {
+    hideBadge.className = 'badge idle';
+    hideBadge.innerHTML = '<span class="dot"></span>' + hideState;
+  }
+  
+  document.body.classList.toggle('docent-mode', isDocent);
+  const frame = document.querySelector('.frame');
+  if (frame) frame.classList.toggle('docent-mode', isDocent);
+}
+
 /* ---------- event log ---------- */
 function fmtTime(epoch) {
   const d = new Date(epoch * 1000);
@@ -184,6 +208,7 @@ function connectStream() {
     setNav(state.navigating);
     setWander(state.wander);
     setPeople(state.people);
+    setHideState(state.hide_state);
     cameraWrap.classList.toggle('no-signal', !state.camera);
     if (state.events && state.events.length) appendEvents(state.events);
     draw();
@@ -239,3 +264,24 @@ new ResizeObserver(syncCanvasSize).observe(floorImg);
 floorImg.addEventListener('load', syncCanvasSize);
 syncCanvasSize();
 connectStream();
+
+const serviceDoneBtn = document.getElementById('btn-service-done');
+if (serviceDoneBtn) {
+  serviceDoneBtn.addEventListener('click', async () => {
+    appendMsg('user', '서비스 완료 (메뉴판 수령 완료)');
+    const typing = appendMsg('bot typing', '응답을 기다리는 중');
+    try {
+      const res = await fetch('/api/chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: '서비스 완료' }),
+      });
+      const data = await res.json();
+      typing.querySelector('.bubble').textContent = data.answer;
+    } catch (e) {
+      typing.querySelector('.bubble').textContent = '서버와 통신할 수 없습니다.';
+    } finally {
+      typing.classList.remove('typing');
+    }
+  });
+}

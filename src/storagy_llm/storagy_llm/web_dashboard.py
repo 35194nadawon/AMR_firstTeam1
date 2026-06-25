@@ -94,7 +94,7 @@ class WebDashboard(Node):
         self.wander_sub = self.create_subscription(
             Bool, '/wander_enabled', self.wander_callback, wander_qos)
 
-        camera_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE)
+        camera_qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT)
         self.camera_sub = self.create_subscription(
             Image, '/yolo/detected_image', self.camera_callback, camera_qos)
 
@@ -103,6 +103,12 @@ class WebDashboard(Node):
 
         self.agent_cli = self.create_client(Agent, 'llm_agent')
         self.pose_timer = self.create_timer(0.1, self.update_pose)
+        
+        # R1 integration: subscribe to hide team state
+        self.hide_state = 'FREEZE'
+        self.hide_state_sub = self.create_subscription(
+            String, '/hide/state', self.hide_state_callback, 10)
+            
         self.get_logger().info("Web dashboard node initialized.")
 
     def add_event(self, text: str):
@@ -117,6 +123,12 @@ class WebDashboard(Node):
 
     def event_callback(self, msg: String):
         self.add_event(msg.data)
+
+    def hide_state_callback(self, msg: String):
+        with self.lock:
+            if self.hide_state != msg.data:
+                self.add_event(f"숨는팀 상태 변경: {msg.data}")
+            self.hide_state = msg.data
 
     def wander_callback(self, msg: Bool):
         with self.lock:
@@ -199,7 +211,7 @@ class WebDashboard(Node):
     def snapshot(self) -> dict:
         with self.lock:
             pose, goal, navigating = self.pose, self.goal, self.navigating
-            wander, event_seq = self.wander_enabled, self.event_seq
+            wander, event_seq, hide_state = self.wander_enabled, self.event_seq, self.hide_state
         return {
             'pose': {'x': pose[0], 'y': pose[1], 'yaw': pose[2]} if pose else None,
             'goal': {'x': goal[0], 'y': goal[1]} if goal and navigating else None,
@@ -209,6 +221,7 @@ class WebDashboard(Node):
             'people': (self.person_count
                        if (time.time() - self.person_stamp) < 2.0 else None),
             'event_seq': event_seq,
+            'hide_state': hide_state,
         }
 
     def events_since(self, last_seq: int) -> list:

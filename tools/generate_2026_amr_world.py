@@ -65,15 +65,15 @@ WALKING_PERSON = {
 
 # 청사진 기준 T1~T4 배치 (scale=1.0 기준 크기·좌표)
 BASE_BLUEPRINT_DESKS = [
-    {'name': 't1', 'label': 'T1', 'x': -2.75, 'y': 0.45, 'size_x': 0.65, 'size_y': 2.20},
+    {'name': 't1', 'label': 'T1', 'x': -3.20, 'y': 0.45, 'size_x': 0.65, 'size_y': 2.20},
     {'name': 't2', 'label': 'T2', 'x': -1.00, 'y': 1.25, 'size_x': 0.65, 'size_y': 1.80},
     {'name': 't3', 'label': 'T3', 'x': -1.00, 'y': -0.90, 'size_x': 0.65, 'size_y': 1.80},
-    {'name': 't4', 'label': 'T4', 'x': 2.75, 'y': -0.50, 'size_x': 0.65, 'size_y': 2.20},
+    {'name': 't4', 'label': 'T4', 'x': 3.20, 'y': -0.50, 'size_x': 0.65, 'size_y': 2.20},
 ]
 
 # 세로 길이·두께 동일 비율 확대 (T2/T3 간격은 겹침 없이 자동 벌림)
-TABLE_LENGTH_SCALE = 1.25
-TABLE_PAIR_EDGE_GAP = 0.35   # T2–T3 가장자리 간격
+TABLE_LENGTH_SCALE = 0.95
+TABLE_PAIR_EDGE_GAP = 1.40   # T2–T3 가장자리 간격
 
 
 def _pair_half_sep(size_y_t2: float, size_y_t3: float) -> float:
@@ -424,12 +424,69 @@ def walking_person_actor_sdf() -> str:
     </actor>'''
 
 
+def generate_tactile_path() -> str:
+    """비충돌형 노란색 점자 블록 시각 경로 생성."""
+    points = []
+    
+    def add_line(p1, p2, step=0.3):
+        x1, y1 = p1
+        x2, y2 = p2
+        dist = math.hypot(x2 - x1, y2 - y1)
+        if dist < 0.01:
+            points.append((x1, y1))
+            return
+        n_steps = int(dist / step)
+        for i in range(n_steps + 1):
+            t = i / max(1, n_steps)
+            points.append((x1 + t * (x2 - x1), y1 + t * (y2 - y1)))
+
+    # Main corridor trunk
+    add_line((-3.9, 0.12), (2.4, 0.12), step=0.35)
+    
+    # T1 branch (goes north to T1)
+    add_line((-3.2, 0.12), (-3.2, 0.70), step=0.3)
+    
+    # T2 branch (goes north to T2 edge)
+    add_line((0.0, 0.12), (0.0, 0.65), step=0.3)
+    
+    # T3 branch (goes south to T3 edge)
+    add_line((0.0, 0.12), (0.0, -0.70), step=0.3)
+    
+    # T4 branch (goes to T4)
+    add_line((2.4, 0.12), (3.0, -0.50), step=0.3)
+    
+    # Deduplicate points that are too close
+    unique_points = []
+    for p in points:
+        if not any(math.hypot(p[0] - u[0], p[1] - u[1]) < 0.15 for u in unique_points):
+            unique_points.append(p)
+            
+    # Format to visual-only SDF models
+    sdf_parts = []
+    for idx, (px, py) in enumerate(unique_points):
+        sdf_parts.append(f"""    <model name="tactile_block_{idx}">
+      <static>true</static>
+      <pose>{px:.3f} {py:.3f} 0.012 0 0 0</pose>
+      <link name="link">
+        <visual name="visual">
+          <geometry><box><size>0.25 0.25 0.003</size></box></geometry>
+          <material>
+            <ambient>0.95 0.75 0.06 1.0</ambient>
+            <diffuse>0.95 0.75 0.06 1.0</diffuse>
+          </material>
+        </visual>
+      </link>
+    </model>""")
+    return '\n'.join(sdf_parts)
+
+
 def generate_sdf(layout: dict) -> str:
     ex, ey, ez = layout['base']['pose']
     door = layout['entry_door']
     hide = layout['hideout']
     mesh_uri = layout['base'].get('mesh_uri', '1206_2_sim.dae')
     desks_xml = '\n'.join(desk_and_chairs_sdf(d) for d in layout['desks'])
+    tactile_xml = generate_tactile_path()
 
     return f"""<?xml version="1.0" ?>
 <sdf version="1.6">
@@ -577,6 +634,7 @@ def generate_sdf(layout: dict) -> str:
       <name>hideout_aruco</name>
       <pose>{hide['x'] + 0.17:.2f} {hide['y']} 0.35 0 1.5708 0</pose>
     </include>
+{tactile_xml}
 {walking_person_actor_sdf()}
   </world>
 </sdf>
